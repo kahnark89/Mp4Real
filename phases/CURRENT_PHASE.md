@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-24 — Claude Code — full session: repo structure, MCP server, seed event, elicitation |
+| **Last working session** | 2026-05-24 — Claude Code — source-polar scaffold: BiometricSource interface, PolarBleBiometricSource, Gradle infra |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -64,9 +64,7 @@ _None observed yet._
 
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
-1. **[MOD-005] Add `escalation_delta` coherence check to `JsonCorpusBackend.ingest_event()`.** This is a CLAUDE.md §2.4 schema invariant — not optional. File: `backend/api/arcshield/corpus/backends/json_backend.py`, before the `_save_event()` call. Add corresponding test in `TestIngest`. See `backend/api/SESSION_LOG.md` MOD-005 for exact code.
-2. **Scaffold `source-polar` Kotlin module** — `BiometricSource` interface, `PolarH10BiometricSource` stub, PMD packet anchoring skeleton. No BLE logic yet; just the interface wiring and DI binding.
-3. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
+1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
 4. **Wire `core-llr` Λ_env** from acoustic spectral KL divergence — initial implementation only.
 5. **Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.
 6. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
@@ -102,6 +100,8 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json` (project-level); MOD-002 path resolution fix in `load_config()` | Server invocable from any CWD |
 | 2026-05-24 | — | MCP server (Session 001) — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), contract test suite (28/28 passing) | Built in prior session; unpacked from zip into `backend/api/` |
+| 2026-05-24 | W-001 | `source-polar` Kotlin module scaffolded — `BiometricSource` interface + sample types in `core-schema`, `PolarBleBiometricSource` + `PolarDeviceType` in `source-polar`, full Gradle infra (settings, version catalog, wrapper) | Clock anchoring, gap emission, reconnect backoff, H10 offline recording stub all implemented |
+| 2026-05-24 | — | MOD-005 `escalation_delta` coherence check — already implemented in `json_backend.py` lines 191–201 and tested in `TestIngest`; session log was stale | No action required |
 | 2026-05-24 | W-000 | Repository scaffolded per CLAUDE.md §10 — full directory tree, files organized, CURRENT_PHASE.md moved to phases/ | Initial structure commit |
 
 ---
@@ -197,6 +197,17 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Remaining elicitation questions: Q2.2, Q3.2, Q3.3, Q3.4, Q3.5, Q4.2, Q4.3, Q4.4, Q5.1, Q5.2, Q5.3, Q6.2, Q6.3, Q7.2, Q7.3, Q8.1, Q8.2, Q9.1, Q9.2, Q10.1, Q10.2 — all HIGH or lower, none BLOCKING.
   - Everything committed directly to main throughout the session. Branch claude/repo-structure-setup-mvrRI was merged to main early in the session; all subsequent work was committed directly to main.
   - Next session pickup point: (1) decide whether to run HIGH elicitation questions or shift to Android source-polar module; (2) if build path — scaffold source-polar Kotlin module with BiometricSource interface, PolarBleBiometricSource stub, auto-detection logic skeleton; (3) open question — should corpus/events/ be gitignored for live captures while keeping the seed event tracked?
+```
+
+```
+2026-05-24 — Claude Code — source-polar scaffold
+  - Confirmed MOD-005 already implemented (json_backend.py lines 191–201) and tested — session log was stale. No action needed.
+  - Created Android Gradle infrastructure: android/settings.gradle.kts, android/build.gradle.kts, android/gradle/libs.versions.toml, android/gradle/wrapper/gradle-wrapper.properties.
+  - Created core-schema module: BiometricSource interface, BiometricChannel enum, GapReason enum, BiometricGap, HrSample, RrSample, EcgSample, AccelSample, EdaSample. All shared types — no Polar SDK dependency in core-schema.
+  - Created source-polar module: PolarDeviceType enum (H10 / VERITY_SENSE with capabilities, sourceId, supportsOfflineRecording), PolarBleBiometricSource implementing full BiometricSource interface.
+  - Key invariants implemented: elapsedRealtimeNanos clock anchor on first PMD frame, per-sample timestamp reconstruction from frame-last-sample + index arithmetic, explicit BiometricGap emission on BLE dropout (never silently interpolated), lowSyncConfidence flag on gaps >= 4s, exponential reconnect backoff (2s→30s cap), H10 offline recording backfill stubbed with TODO.
+  - Dependency graph: core-capture → core-schema ← source-polar (consumers never reference concrete Polar classes).
+  - Next session pickup point: wire core-llr Λ_env (acoustic spectral KL divergence) — next Phase 1 deliverable.
 ```
 
 ---
