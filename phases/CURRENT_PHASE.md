@@ -20,8 +20,8 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | _0 validated CIAER+ events_ |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-24 — Claude Code — repo structure scaffolding |
-| **Build is** | 🟢 _healthy_ &nbsp;/&nbsp; 🟡 _flagged_ &nbsp;/&nbsp; 🔴 _blocked_ |
+| **Last working session** | 2026-05-24 — Claude Code — MCP server unpacked + CURRENT_PHASE.md updated |
+| **Build is** | 🟢 healthy |
 
 ---
 
@@ -31,15 +31,11 @@ Things being worked on right now. Move items here from §3 (Backlog) when starti
 
 | ID | Item | Module(s) | Started | Owner | State |
 |---|---|---|---|---|---|
-| W-001 | _Example: implement `PolarBleBiometricSource.rrIntervals()` with PMD packet anchoring_ | `source-polar` | _YYYY-MM-DD_ | _Claude Code_ | _in-progress / review / blocked_ |
-| | | | | | |
 | | | | | | |
 
 ### Per-item working notes
 
-Use this space for in-progress thinking that doesn't belong in commit messages. Anything that would otherwise be lost when the session ends goes here.
-
-**W-001** — _Working notes for the active item. ε_sync measurements from yesterday's bench test: 47 ms median, 89 ms p95. Next step is the back-fill sync on BLE reconnect; H10 internal buffer holds the data but the SDK's read-back path isn't documented well — see vendor issue #__._
+_(No active items. Pull from §3 when starting.)_
 
 ---
 
@@ -68,11 +64,17 @@ _None observed yet._
 
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
-1. _Bench-test `PolarBleBiometricSource` against H10 over a 4-hour continuous capture; characterize dropout rate near the extruder barrel._
-2. _Wire `core-llr` Λ_env from acoustic spectral KL divergence — initial implementation only._
-3. _Wire `core-llr` Λ_bio from HR delta + HRV-RMSSD ratio — Polar PMD-derived._
-4. _Build `tools/shadow-mode-labeler` as a minimal Compose screen reading candidate windows from local storage._
-5. _Implement `PreEnvSource.captureBaseline()` as a 90-second sample-all-channels routine triggered manually at shift start (auto-detection deferred to Phase 2)._
+1. **[MOD-005] Add `escalation_delta` coherence check to `JsonCorpusBackend.ingest_event()`.** This is a CLAUDE.md §2.4 schema invariant — not optional. File: `backend/api/arcshield/corpus/backends/json_backend.py`, before the `_save_event()` call. Add corresponding test in `TestIngest`. See `backend/api/SESSION_LOG.md` MOD-005 for exact code.
+2. **Scaffold `source-polar` Kotlin module** — `BiometricSource` interface, `PolarH10BiometricSource` stub, PMD packet anchoring skeleton. No BLE logic yet; just the interface wiring and DI binding.
+3. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
+4. **Wire `core-llr` Λ_env** from acoustic spectral KL divergence — initial implementation only.
+5. **Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.
+6. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
+7. **Implement `PreEnvSource.captureBaseline()`** as a 90-second sample-all-channels routine triggered manually at shift start (auto-detection deferred to Phase 2).
+8. **[MOD-002] Fix `corpus_dir` path resolution in `load_config()`** — resolve relative to `config.toml` location, not CWD. Prevents breakage when `server.py` is invoked from a different directory. File: `backend/api/server.py`, `load_config()`.
+9. **[MOD-001] `SqliteCorpusBackend`** — Phase 2 trigger: corpus_depth > ~500 events or `list_failure_modes` scan latency > 200ms. See `backend/api/SESSION_LOG.md` MOD-001 for full spec.
+10. **[MOD-004] Per-operator write auth** — Phase 2. `config.toml [auth] write_operators` allowlist + signed token verification in `ingest_event` and `update_graph_weight`. See `backend/api/SESSION_LOG.md` MOD-004.
+11. **[MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: value-proximity weighting; Phase 3: embedding ANN. See `backend/api/SESSION_LOG.md` MOD-003 for update checklist.
 
 When pulling an item from this list into §1, copy its text verbatim and assign a W-### ID.
 
@@ -84,9 +86,9 @@ Items that cannot advance until something external resolves. Each entry needs an
 
 | Item | Blocked on | Unblock condition | First flagged | Last poked |
 |---|---|---|---|---|
-| _Facility deployment agreement with Hollowell_ | _Legal sign-off_ | _Signed MSA + data-rights addendum_ | _YYYY-MM-DD_ | _YYYY-MM-DD_ |
-| _PLC API integration (Phase 3 prep)_ | _Vendor access + IT scope clarification_ | _Read-only OPC-UA endpoint or documented historian export_ | _YYYY-MM-DD_ | _YYYY-MM-DD_ |
-| | | | | |
+| Facility deployment agreement with Hollowell | Legal sign-off | Signed MSA + data-rights addendum | 2026-05-24 | 2026-05-24 |
+| PLC API integration (Phase 3 prep) | Vendor access + IT scope clarification | Read-only OPC-UA endpoint or documented historian export | 2026-05-24 | 2026-05-24 |
+| [MOD-009] Corpus bootstrap — first real CIAER+ event from PPVC Line 1 | Facility agreement + active capture | April 8 live demonstration event ingested via `ingest_event` tool | 2026-05-24 | 2026-05-24 |
 
 ---
 
@@ -96,9 +98,8 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-24 | — | MCP server (Session 001) — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), contract test suite (28/28 passing) | Built in prior session; unpacked from zip into `backend/api/` |
 | 2026-05-24 | W-000 | Repository scaffolded per CLAUDE.md §10 — full directory tree, files organized, CURRENT_PHASE.md moved to phases/ | Initial structure commit |
-| | | | |
-| | | | |
 
 ---
 
@@ -108,8 +109,10 @@ Architecture-level questions where Claude Code should **not** decide unilaterall
 
 | Decision needed | Options on the table | Claude Code's recommendation | Date raised |
 |---|---|---|---|
-| _Example: BiometricSource implementation when both H10 and Verity Sense are paired simultaneously — prefer ECG track from H10, accel from Verity Sense, or fail closed and require the user to select one?_ | _(a) prefer H10 / (b) prefer Verity Sense / (c) require explicit selection_ | _(a) prefer H10 for ECG, accept Verity Sense accel only if H10 absent. Mirrors the validation-vs-operational device strategy in CLAUDE.md §8.3._ | _YYYY-MM-DD_ |
-| | | | |
+| [MOD-008] `sensor_readings` passed to `query_by_cause_signature` as a JSON string (MCP scalar constraint). Is this acceptable for agent consumption or should a structured prompt template wrap the call? | (a) keep JSON string injection — simple, works now / (b) add a prompt template helper that builds the JSON string for agents / (c) wait for MCP structured parameter support | (a) for now — the tool works correctly and agents handle JSON string injection fine. Revisit when corpus has real events and agents are actively querying. | 2026-05-24 |
+| [MOD-007] `get_divergent_chains` as an 8th MCP tool: add the stub now (returning NOT_AVAILABLE) or wait until `GraphCorpusBackend` (Phase 3) is built? | (a) add stub now so the tool surface is declared early / (b) add only when GraphCorpusBackend exists | (a) add stub now — agents can see it exists and handle NOT_AVAILABLE gracefully. Zero implementation cost. | 2026-05-24 |
+| [MOD-006] `graph_weight` counterfactual policy (A13 gap): Leiden community re-detection when a high-centrality event's weight changes by > 0.2. Confirm threshold and trigger condition before Phase 3 implementation. | (a) threshold 0.2 + top-10% betweenness / (b) different threshold / (c) defer entirely to Phase 4 | Defer to Phase 3 design session — need real corpus data to calibrate centrality thresholds. | 2026-05-24 |
+| BiometricSource implementation when both H10 and Verity Sense are paired simultaneously | (a) prefer H10 for ECG, accept Verity Sense accel only if H10 absent / (b) prefer Verity Sense / (c) require explicit selection | (a) — mirrors validation-vs-operational device strategy in CLAUDE.md §8.3. | 2026-05-24 |
 
 ---
 
@@ -156,6 +159,16 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Moved MCP zip archives → tools/.
   - Added .gitkeep to all empty module directories.
   - Next session pickup point: begin source-polar Kotlin module (BiometricSource interface, PMD integration).
+```
+
+```
+2026-05-24 — Claude Code — MCP server unpacked + CURRENT_PHASE.md updated
+  - Unpacked arcshield-mcp-v1.zip into backend/api/ (canonical source — has server.py, config.toml, SESSION_LOG.md).
+  - arcshield-mcp-corpus-backend.zip is a subset of v1 (no server.py/config.toml) with compiled pycs; confirmed identical source; left as archive in tools/.
+  - Session 001 work (previously done): arcshield/schema.py (full CIAER+ Pydantic models), CorpusBackend ABC (3-phase upgrade path), JsonCorpusBackend (Phase 1, flat JSON, 28/28 contract tests passing), server.py (7 MCP tools: list_failure_modes, query_by_failure_mode, query_by_cause_signature, get_event, get_shadow_actions, ingest_event, update_graph_weight).
+  - Integrated all 9 MOD items and 3 open questions from SESSION_LOG.md into this file: MOD-005 (escalation_delta invariant) added top of backlog; MOD-007/008/006 raised to §6; corpus bootstrap added to §4.
+  - Surprises: MOD-005 (escalation_delta coherence check) is listed in the CorpusBackend docstring as a MUST but is NOT implemented in JsonCorpusBackend — this is a CLAUDE.md §2.4 invariant violation. Priority item in backlog.
+  - Next session pickup point: implement MOD-005 escalation_delta check in json_backend.py, then scaffold source-polar Kotlin module.
 ```
 
 ---
