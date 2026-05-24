@@ -61,12 +61,15 @@ def make_event(
     failure_mode_tag: str = "material_segregation",
     graph_weight: float = 0.85,
     escalation_state: int = 2,
+    escalation_state_at_result: int | None = None,
     srk_level: SRKLevel = SRKLevel.RULE,
     outcome_tag: OutcomeTag = OutcomeTag.PROBLEM_PREVENTED,
     instruments: list[str] | None = None,
 ) -> CIAEREvent:
     """Construct a minimal but valid CIAER+ event for testing."""
     instruments = instruments or ["crammer_amps", "zone1_temp_f"]
+    if escalation_state_at_result is None:
+        escalation_state_at_result = max(0, escalation_state - 1)
 
     sensor_readings = [
         SensorReading(instrument_id=iid, value=50.0 + i, unit="A", confidence=0.9)
@@ -132,8 +135,8 @@ def make_event(
         result = Result(
             completed_at               = NOW,
             outcome_tag                = outcome_tag,
-            escalation_state_at_result = 1,
-            escalation_delta           = 1,
+            escalation_state_at_result = escalation_state_at_result,
+            escalation_delta           = escalation_state - escalation_state_at_result,
             hypothesis_confirmed       = True,
             product_quality_impact     = ProductQualityImpact.NO_IMPACT,
             graph_weight               = graph_weight,
@@ -206,6 +209,14 @@ class TestIngest:
         event = make_event()
         bad = event.model_copy(update={"facility_id": "WRONG_FACILITY"})
         with pytest.raises(SchemaValidationError):
+            await backend.ingest_event(bad)
+
+    async def test_mismatched_escalation_delta_raises(self, backend):
+        event = make_event()  # escalation_state=2, escalation_state_at_result=1, escalation_delta=1
+        bad = event.model_copy(
+            update={"result": event.result.model_copy(update={"escalation_delta": 0})}
+        )
+        with pytest.raises(SchemaValidationError, match="escalation_delta"):
             await backend.ingest_event(bad)
 
 

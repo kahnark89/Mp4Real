@@ -188,6 +188,18 @@ class JsonCorpusBackend(CorpusBackend):
                 "timestamp_start must be before timestamp_end."
             )
 
+        # escalation_delta coherence (CLAUDE.md §2.4 schema invariant)
+        expected_delta = (
+            event.cause.escalation_state - event.result.escalation_state_at_result
+        )
+        if event.result.escalation_delta != expected_delta:
+            raise SchemaValidationError(
+                f"escalation_delta {event.result.escalation_delta} does not match "
+                f"cause.escalation_state ({event.cause.escalation_state}) - "
+                f"result.escalation_state_at_result "
+                f"({event.result.escalation_state_at_result}) = {expected_delta}"
+            )
+
         try:
             await asyncio.to_thread(self._save_event, event)
         except OSError as exc:
