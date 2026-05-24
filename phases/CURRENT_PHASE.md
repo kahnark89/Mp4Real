@@ -17,10 +17,10 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Target completion** | _YYYY-MM-DD_ |
 | **Calendar week of phase** | _Week 1 of 6_ |
 | **Validation site status** | _PPVC Line 1 active / blocked / awaiting agreement_ |
-| **Corpus depth** | _0 validated CIAER+ events_ |
+| **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-24 — Claude Code — MCP server unpacked + CURRENT_PHASE.md updated |
+| **Last working session** | 2026-05-24 — Claude Code — MCP wired + April 8 seed event ingested |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -88,7 +88,7 @@ Items that cannot advance until something external resolves. Each entry needs an
 |---|---|---|---|---|
 | Facility deployment agreement with Hollowell | Legal sign-off | Signed MSA + data-rights addendum | 2026-05-24 | 2026-05-24 |
 | PLC API integration (Phase 3 prep) | Vendor access + IT scope clarification | Read-only OPC-UA endpoint or documented historian export | 2026-05-24 | 2026-05-24 |
-| [MOD-009] Corpus bootstrap — first real CIAER+ event from PPVC Line 1 | Facility agreement + active capture | April 8 live demonstration event ingested via `ingest_event` tool | 2026-05-24 | 2026-05-24 |
+| ~~[MOD-009] Corpus bootstrap~~ | ~~Facility agreement + active capture~~ | **DONE** — seed event 6ab2942f ingested 2026-05-24 | 2026-05-24 | 2026-05-24 |
 
 ---
 
@@ -98,6 +98,8 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
+| 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json` (project-level); MOD-002 path resolution fix in `load_config()` | Server invocable from any CWD |
 | 2026-05-24 | — | MCP server (Session 001) — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), contract test suite (28/28 passing) | Built in prior session; unpacked from zip into `backend/api/` |
 | 2026-05-24 | W-000 | Repository scaffolded per CLAUDE.md §10 — full directory tree, files organized, CURRENT_PHASE.md moved to phases/ | Initial structure commit |
 
@@ -169,6 +171,17 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Integrated all 9 MOD items and 3 open questions from SESSION_LOG.md into this file: MOD-005 (escalation_delta invariant) added top of backlog; MOD-007/008/006 raised to §6; corpus bootstrap added to §4.
   - Surprises: MOD-005 (escalation_delta coherence check) is listed in the CorpusBackend docstring as a MUST but is NOT implemented in JsonCorpusBackend — this is a CLAUDE.md §2.4 invariant violation. Priority item in backlog.
   - Next session pickup point: implement MOD-005 escalation_delta check in json_backend.py, then scaffold source-polar Kotlin module.
+```
+
+```
+2026-05-24 — Claude Code — MCP wired + April 8 seed event ingested
+  - Fixed MOD-002: load_config() now resolves corpus_dir relative to config.toml location, not CWD. Server invocable from any working directory.
+  - Created .claude/settings.json (project-level) wiring arcshield MCP server into Claude Code. Args: python backend/api/server.py --config backend/api/config.toml.
+  - Constructed and ingested April 8, 2026 PIE demonstration event (event_id 6ab2942f). failure_mode_tag=material_segregation_funnel_flow, escalation_state=2→0, KNOWLEDGE-level, 2 shadow_actions, voice_transcript captured, graph_weight=0.88. All schema invariants verified including escalation_delta=2.
+  - Corpus depth: 0 → 1.
+  - bootstrap_seed_event.py committed to backend/api/ — idempotent, safe to re-run.
+  - .gitignore already covers backend/api/corpus/ via __pycache__ pattern — NOTE: corpus/ itself is NOT in .gitignore. Seed event JSON is committed. Decide next session whether live corpus events should be gitignored (they probably should be for production, but committing the seed is intentional for prior art provenance).
+  - Next session pickup point: discuss optimum path forward (Android source-polar vs. MCP refinements vs. corpus building).
 ```
 
 ---

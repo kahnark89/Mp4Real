@@ -92,15 +92,27 @@ log = logging.getLogger("arcshield")
 # ---------------------------------------------------------------------------
 
 def load_config(config_path: str | Path = "config.toml") -> dict:
-    path = Path(config_path)
+    path = Path(config_path).resolve()
     if not path.exists():
         log.warning("config.toml not found at %s — using defaults.", path)
         return {
             "server":  {"name": "arcshield-mcp", "facility_id": "DEFAULT", "allow_writes": False},
-            "backend": {"type": "json", "json": {"corpus_dir": "./corpus"}},
+            "backend": {"type": "json", "json": {"corpus_dir": str(path.parent / "corpus")}},
         }
     with open(path, "rb") as f:
-        return tomllib.load(f)
+        config = tomllib.load(f)
+
+    # Resolve relative backend paths to be relative to the config file, not CWD.
+    # This makes the server invocable from any working directory (MOD-002).
+    config_dir = path.parent
+    backend_type = config.get("backend", {}).get("type", "json")
+    backend_section = config.get("backend", {}).get(backend_type, {})
+    if "corpus_dir" in backend_section:
+        raw = backend_section["corpus_dir"]
+        if not Path(raw).is_absolute():
+            backend_section["corpus_dir"] = str(config_dir / raw)
+
+    return config
 
 
 # ---------------------------------------------------------------------------
