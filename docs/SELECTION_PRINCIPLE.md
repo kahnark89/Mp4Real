@@ -107,7 +107,7 @@ The categories below organize accumulated decisions by area. Each entry is a rul
 ### 4.2 Biometrics
 
 - **Polar PMD over Health Connect.** Raw R-R intervals enable defensible nonlinear HRV claims. Sample-level PMD timestamps clean up ε_sync. The wrist-watch form factor was originally chosen for adoption friction, but the H10 / Verity Sense pair preserves wearability while delivering research-grade signal.
-- **H10 as validation reference, Verity Sense as operational device.** Run both during calibration sprints. Ship Verity Sense for daily wear. Spot-check with H10 periodically. This pattern (reference device + operational device) generalizes to any future biometric channel where a research-grade option exists alongside a wearable one.
+- **H10 and Verity Sense are both supported from day one with equal standing in code.** Auto-detection is the primary path — scan for paired Polar devices, identify by model, connect to whichever is present. If both are detected simultaneously, surface an operator selection prompt rather than silently prioritizing. No hard primary/secondary designation in the implementation; device priority is determined at runtime by what's detected, not by configuration. [Q2.1, 2026-05-24]
 - **EDA permanently off the wrist channel.** Companion sensor (Emotibit, Shimmer GSR+) behind the same `BiometricSource` interface when EDA matters. Don't design it out, but don't pretend it's coming back to the wrist.
 
 ### 4.3 Schema & Corpus
@@ -116,12 +116,15 @@ The categories below organize accumulated decisions by area. Each entry is a rul
 - **shadow_actions is REQUIRED at KNOWLEDGE-level events.** KNOWLEDGE without rejected alternatives is suspicious and gets flagged for re-elicitation. This rule generalizes: when an inference type implies deliberation, the deliberation residue must be captured.
 - **model_revision is REQUIRED when hypothesis_confirmed = false.** Disconfirmed events without revisions are useless to the learning system. Failure events that update the operator's model are the highest-information records in the corpus.
 - **Monte Carlo augmentation operates only on structured sensor-derived components, never on voice transcripts.** Voice content is never fabricated. This is the corpus-integrity firewall.
+- **`operator_id` is a self-sovereign key generated and held by the operator.** Its sole function is provenance attestation — guaranteeing that events claiming to originate from this operator actually did. It carries zero system privileges. The integrity guarantee is one-directional: no one can forge source attribution on your events, but holding the key grants nothing beyond the ability to sign your own records. Portable across facilities and marketplace deployments from day one. [Q3.1, 2026-05-24]
+- **Corpus validation expands in a three-step sprint.** Once event recording begins, the corpus moves from single-operator to multi-operator multi-domain within one week: (1) same line, same shift, different operator — isolates operator variance with all process variables held constant; (2) primary operator on a second extrusion line with different material and failure mode set — isolates domain variance; (3) different operator on that second line — cross-validates both simultaneously. Sprint model controls for seasonal and process drift that would confound a slow rollout. [Q7.1, 2026-05-24]
 
 ### 4.4 Codebook & Learning
 
 - **HITL validation gates every codebook expansion.** A novel waveform doesn't become a primitive until a human has structured it into CIAER+ and named the failure mode. This is the bounded-mutation-rate invariant at product scale.
 - **RAG before LoRA.** Phase 2 advisory uses retrieval; LoRA arrives only at ~200 events. Premature LoRA on a thin corpus produces a confidently wrong Twin, which is worse than a retrieval system that surfaces the right historical event with no synthesis.
 - **Withhold sampling instrumented from day one, enabled only when advisory is live.** The pipeline exists in Phase 1 with p_withhold = 0. Turning it on is a config change, not a code change. Counterfactual evidence collection cannot be retrofitted; the data path must exist before the data does.
+- **θ_TC is a per-primitive field in the codebook schema from day one, initialized to a single globally-calibrated value.** The global value is set empirically during Phase 1 shadow-mode from hand-labeled candidates targeting ~80% TP rate, then locked. Per-primitive divergence from the global value is a Phase 3+ data change when observation depth per primitive is sufficient to estimate variance honestly. Adaptive auto-tuning is rejected until Phase 3+ and only if the global+per-primitive path proves insufficient. [Q4.1, 2026-05-24]
 
 ### 4.5 LLM Integration
 
@@ -131,7 +134,7 @@ The categories below organize accumulated decisions by area. Each entry is a rul
 ### 4.6 IP & Documentation
 
 - **mp4Real™, ArcShield™, CIAER™, CIAER+™ trademark notice on every public artifact.** Non-negotiable, exact text in CLAUDE.md §15.
-- **Provisional patent before arXiv.** Paris Convention foreign-filing clock starts at first public disclosure; arXiv submission gates on provisional being filed first.
+- **Provisional patent before arXiv, arXiv before non-provisional.** The sequence is: provisional → arXiv → non-provisional. The provisional establishes the Paris Convention priority date; arXiv establishes the academic priority date; the non-provisional cites both. Counsel reviews the arXiv text against the claims before non-provisional drafting, not before arXiv submission. [Q6.1, 2026-05-24]
 - **Specification rigor over marketing.** Domain-neutral technical language. Speculative elements explicitly flagged. Aspirational features never presented as built features.
 
 ### 4.7 Deployment & Adoption

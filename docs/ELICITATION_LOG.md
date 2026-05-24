@@ -74,7 +74,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §2 — Biometrics
 
-### Q2.1 — `[BLOCKING]` H10 vs Verity Sense as Phase 1 primary
+### Q2.1 — `[ANSWERED 2026-05-24]` H10 vs Verity Sense as Phase 1 primary
 
 **Context.** ARCHITECTURE_PRINCIPLES.md §4.2 records the validation-vs-operational pattern, but Phase 1 starts with one device. The choice cascades into the LLR gate calibration data.
 
@@ -84,8 +84,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Both simultaneously from session one — wear both, log both, decide later
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (d) Both supported from day one. Auto-detect whichever is paired; prompt operator to select if both are detected simultaneously.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.2
 
 ---
 
@@ -136,7 +136,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §3 — Schema & Corpus
 
-### Q3.1 — `[BLOCKING]` Operator identification across sessions
+### Q3.1 — `[ANSWERED 2026-05-24]` Operator identification across sessions
 
 **Context.** CIAER+ has `operator_id`. The earlier docs use UUID; some patterns suggest a more meaningful structure.
 
@@ -146,8 +146,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Operator-owned key — the operator generates and controls their own ID, marketplace-compatible from day one
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (c) Operator-owned key, provenance only — no privileges attached. Key guarantees record source is always true; grants nothing beyond ability to sign your own events.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.3
 
 ---
 
@@ -213,7 +213,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §4 — Codebook & Learning
 
-### Q4.1 — `[BLOCKING]` TC threshold θ_TC for codebook match
+### Q4.1 — `[ANSWERED 2026-05-24]` TC threshold θ_TC for codebook match
 
 **Context.** FIG. 8 shows TC ≥ θ_TC → compressed token; TC < θ_TC → uncompressed waveform. The threshold value is empirical. The rule for setting it is not.
 
@@ -223,8 +223,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Per-primitive θ_TC — each π_i has its own match threshold based on its variance
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (d) Fixed global θ_TC for Phase 1 (set from shadow-mode hand-labeling), but per-primitive `theta_tc` field in codebook schema from day one — all initialized to global value. Per-primitive divergence is Phase 3+ data change.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.4
 
 ---
 
@@ -322,7 +322,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §6 — IP, Patent & Disclosure
 
-### Q6.1 — `[BLOCKING]` arXiv submission timing relative to non-provisional patent
+### Q6.1 — `[ANSWERED 2026-05-24]` arXiv submission timing relative to non-provisional patent
 
 **Context.** Provisional is filed. Non-provisional has a 12-month window. arXiv submission is gated on provisional for Paris Convention purposes. Where does it sit relative to non-provisional?
 
@@ -332,8 +332,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Coordinated same-week — submit both within a tight window
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (a) arXiv before non-provisional. Non-provisional not yet filed as of 2026-05-24 — 12-month provisional window is active.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.6
 
 ---
 
@@ -369,7 +369,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §7 — Deployment & Adoption
 
-### Q7.1 — `[BLOCKING]` Validation site beyond PPVC Line 1
+### Q7.1 — `[ANSWERED 2026-05-24]` Validation site beyond PPVC Line 1
 
 **Context.** The sample-of-one problem at PPVC is acceptable because of architect honesty, but the next deployment needs an operator who isn't you. Which line?
 
@@ -379,8 +379,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Same line, second shift — minimum-confound expansion
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (d) Three-step sprint within one week once recording begins: (1) same line same shift different operator, (2) primary operator on second extrusion line with different material and failure modes, (3) different operator on that second line.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.3
 
 ---
 

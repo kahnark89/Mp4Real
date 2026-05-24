@@ -1,0 +1,23 @@
+[versions]
+agp             = "8.3.2"
+kotlin          = "2.0.21"
+coreKtx         = "1.13.1"
+coroutines      = "1.8.1"
+rxjava3         = "3.1.9"
+polarBle        = "5.3.1"
+junit           = "4.13.2"
+
+[libraries]
+androidx-core-ktx          = { group = "androidx.core",              name = "core-ktx",                    version.ref = "coreKtx"    }
+kotlinx-coroutines-core    = { group = "org.jetbrains.kotlinx",      name = "kotlinx-coroutines-core",     version.ref = "coroutines" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx",      name = "kotlinx-coroutines-android",  version.ref = "coroutines" }
+kotlinx-coroutines-rx3     = { group = "org.jetbrains.kotlinx",      name = "kotlinx-coroutines-rx3",      version.ref = "coroutines" }
+kotlinx-coroutines-test    = { group = "org.jetbrains.kotlinx",      name = "kotlinx-coroutines-test",     version.ref = "coroutines" }
+rxjava3                    = { group = "io.reactivex.rxjava3",        name = "rxjava",                      version.ref = "rxjava3"    }
+polar-ble-sdk              = { group = "com.github.polarofficial",    name = "polar-ble-sdk",               version.ref = "polarBle"   }
+junit                      = { group = "junit",                       name = "junit",                       version.ref = "junit"      }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp"    }
+android-library     = { id = "com.android.library",     version.ref = "agp"    }
+kotlin-android      = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
