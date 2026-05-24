@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-24 — Claude Code — source-polar scaffold: BiometricSource interface, PolarBleBiometricSource, Gradle infra |
+| **Last working session** | 2026-05-24 — Claude Code — core-llr: Λ_env gate in shadow mode (FFT, KL divergence, rolling accel RMS, LlrGate) |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -65,8 +65,7 @@ _None observed yet._
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
 1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
-4. **Wire `core-llr` Λ_env** from acoustic spectral KL divergence — initial implementation only.
-5. **Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.
+2. **Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived. Plug into the `lambdaBio = 0f` placeholder in `LlrGate.kt`.
 6. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
 7. **Implement `PreEnvSource.captureBaseline()`** as a 90-second sample-all-channels routine triggered manually at shift start (auto-detection deferred to Phase 2).
 8. **[MOD-002] Fix `corpus_dir` path resolution in `load_config()`** — resolve relative to `config.toml` location, not CWD. Prevents breakage when `server.py` is invoked from a different directory. File: `backend/api/server.py`, `load_config()`.
@@ -100,6 +99,7 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json` (project-level); MOD-002 path resolution fix in `load_config()` | Server invocable from any CWD |
 | 2026-05-24 | — | MCP server (Session 001) — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), contract test suite (28/28 passing) | Built in prior session; unpacked from zip into `backend/api/` |
+| 2026-05-24 | W-002 | `core-llr` Λ_env gate — `RealFft` (Cooley-Tukey), `KlDivergence`, `RollingAccelRms` (Welford), `LlrBaseline`, `LlrConfig`, `CandidateWindow`, `llrGate()` in shadow mode; 3 unit test classes | Λ_motion + Λ_gaze = 0.0 stubs; Λ_bio = 0.0 placeholder wired for next item |
 | 2026-05-24 | W-001 | `source-polar` Kotlin module scaffolded — `BiometricSource` interface + sample types in `core-schema`, `PolarBleBiometricSource` + `PolarDeviceType` in `source-polar`, full Gradle infra (settings, version catalog, wrapper) | Clock anchoring, gap emission, reconnect backoff, H10 offline recording stub all implemented |
 | 2026-05-24 | — | MOD-005 `escalation_delta` coherence check — already implemented in `json_backend.py` lines 191–201 and tested in `TestIngest`; session log was stale | No action required |
 | 2026-05-24 | W-000 | Repository scaffolded per CLAUDE.md §10 — full directory tree, files organized, CURRENT_PHASE.md moved to phases/ | Initial structure commit |
@@ -208,6 +208,19 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Key invariants implemented: elapsedRealtimeNanos clock anchor on first PMD frame, per-sample timestamp reconstruction from frame-last-sample + index arithmetic, explicit BiometricGap emission on BLE dropout (never silently interpolated), lowSyncConfidence flag on gaps >= 4s, exponential reconnect backoff (2s→30s cap), H10 offline recording backfill stubbed with TODO.
   - Dependency graph: core-capture → core-schema ← source-polar (consumers never reference concrete Polar classes).
   - Next session pickup point: wire core-llr Λ_env (acoustic spectral KL divergence) — next Phase 1 deliverable.
+```
+
+```
+2026-05-24 — Claude Code — core-llr Λ_env gate + shadow mode
+  - Added AudioFrame, VideoFrame, CaptureSource interface to core-schema (capture package).
+  - Created core-llr module: LlrBaseline, LlrConfig, CandidateWindow, llrGate().
+  - Internal math: RealFft (Cooley-Tukey radix-2 DIT, pure Kotlin, no deps), KlDivergence (epsilon-smoothed KL(P||Q)), RollingAccelRms (Welford online variance, circular buffer).
+  - LlrGate uses channelFlow with three concurrent coroutines: audio collector, accel collector, eval ticker.
+  - Λ_acoustic = KL(baseline_spectrum || rolling_spectrum). Λ_accel = Gaussian-shift GLR.
+  - Λ_motion, Λ_gaze, Λ_bio all 0.0 with explicit stub comments. shadowMode = true default.
+  - 3 unit test classes (12 tests): RealFftTest, KlDivergenceTest, RollingStatsTest.
+  - Added junit + kotlinx-coroutines-test to libs.versions.toml.
+  - Next session pickup point: wire Λ_bio (HR delta + HRV-RMSSD) in core-llr.
 ```
 
 ---
