@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | _0 validated CIAER+ events_ |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | _YYYY-MM-DD by Kahn / Claude Code session #_ |
+| **Last working session** | 2026-05-24 — Claude Code — repo structure scaffolding |
 | **Build is** | 🟢 _healthy_ &nbsp;/&nbsp; 🟡 _flagged_ &nbsp;/&nbsp; 🔴 _blocked_ |
 
 ---
@@ -96,7 +96,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
-| _YYYY-MM-DD_ | _W-000_ | _Repository scaffolding + CLAUDE.md committed_ | _Initial commit_ |
+| 2026-05-24 | W-000 | Repository scaffolded per CLAUDE.md §10 — full directory tree, files organized, CURRENT_PHASE.md moved to phases/ | Initial structure commit |
 | | | | |
 | | | | |
 
@@ -146,6 +146,16 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Committed CLAUDE.md and CURRENT_PHASE.md.
   - No code yet. Phase 1 clock starts when Polar SDK integration begins.
   - Next session pickup point: scaffold `source-polar` module and run first H10 bench test.
+```
+
+```
+2026-05-24 — Claude Code — repo structure scaffolding
+  - Created full directory tree per CLAUDE.md §10.
+  - Moved CURRENT_PHASE.md → phases/CURRENT_PHASE.md (README already referenced this path).
+  - Organized docs: whitepapers → docs/whitepaper/, patent drawings → docs/patent/, analysis docs → docs/.
+  - Moved MCP zip archives → tools/.
+  - Added .gitkeep to all empty module directories.
+  - Next session pickup point: begin source-polar Kotlin module (BiometricSource interface, PMD integration).
 ```
 
 ---
