@@ -86,6 +86,7 @@ Items that cannot advance until something external resolves. Each entry needs an
 
 | Item | Blocked on | Unblock condition | First flagged | Last poked |
 |---|---|---|---|---|
+| Non-provisional patent filing | Patent counsel + budget | File before provisional expires (prior art priority date: 2026-04-08 — 12-month window closes ~2027-04-08). arXiv submission precedes non-provisional per Q6.1 rule. | 2026-05-24 | 2026-05-24 |
 | Facility deployment agreement with Hollowell | Legal sign-off | Signed MSA + data-rights addendum | 2026-05-24 | 2026-05-24 |
 | PLC API integration (Phase 3 prep) | Vendor access + IT scope clarification | Read-only OPC-UA endpoint or documented historian export | 2026-05-24 | 2026-05-24 |
 | ~~[MOD-009] Corpus bootstrap~~ | ~~Facility agreement + active capture~~ | **DONE** — seed event 6ab2942f ingested 2026-05-24 | 2026-05-24 | 2026-05-24 |
