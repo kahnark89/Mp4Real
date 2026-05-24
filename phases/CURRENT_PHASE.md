@@ -13,14 +13,14 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | | |
 |---|---|
 | **Current Phase** | _Phase 1 — Container + LLR gate, shadow mode_ |
-| **Phase start date** | _YYYY-MM-DD_ |
-| **Target completion** | _YYYY-MM-DD_ |
-| **Calendar week of phase** | _Week 1 of 6_ |
-| **Validation site status** | _PPVC Line 1 active / blocked / awaiting agreement_ |
+| **Phase start date** | 2026-05-24 |
+| **Target completion** | ~2026-07-05 (6 weeks) |
+| **Calendar week of phase** | Week 1 of 6 |
+| **Validation site status** | PPVC Line 1 — awaiting facility agreement |
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-24 — Claude Code — MCP wired + April 8 seed event ingested |
+| **Last working session** | 2026-05-24 — Claude Code — full session: repo structure, MCP server, seed event, elicitation |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -181,8 +181,22 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Constructed and ingested April 8, 2026 PIE demonstration event (event_id 6ab2942f). failure_mode_tag=material_segregation_funnel_flow, escalation_state=2→0, KNOWLEDGE-level, 2 shadow_actions, voice_transcript captured, graph_weight=0.88. All schema invariants verified including escalation_delta=2.
   - Corpus depth: 0 → 1.
   - bootstrap_seed_event.py committed to backend/api/ — idempotent, safe to re-run.
-  - .gitignore already covers backend/api/corpus/ via __pycache__ pattern — NOTE: corpus/ itself is NOT in .gitignore. Seed event JSON is committed. Decide next session whether live corpus events should be gitignored (they probably should be for production, but committing the seed is intentional for prior art provenance).
+  - corpus/events/ is committed (intentional for prior art provenance on the seed). Live captured events from the line should probably be gitignored — decide before first line capture.
   - Next session pickup point: discuss optimum path forward (Android source-polar vs. MCP refinements vs. corpus building).
+```
+
+```
+2026-05-24 — Claude Code — BLOCKING elicitation + session close
+  - Ran 5 BLOCKING questions from docs/ELICITATION_LOG.md with Kahn. All answered, rules promoted to docs/SELECTION_PRINCIPLE.md, questions marked [ANSWERED 2026-05-24].
+  - Q2.1: BiometricSource — both H10 and Verity Sense supported equally from day one. Auto-detect; operator prompt if both paired.
+  - Q3.1: operator_id — self-sovereign key, provenance only, zero privileges, portable.
+  - Q4.1: θ_TC — fixed global from shadow-mode calibration (~80% TP), per-primitive field in schema from day one, per-primitive divergence is Phase 3+ data change.
+  - Q6.1: arXiv before non-provisional. Non-provisional NOT YET FILED. Provisional priority date 2026-04-08. Window closes ~2027-04-08. Added to §4 blocked.
+  - Q7.1: Corpus validation sprint — same line same shift different operator → primary operator on second extrusion line → different operator on second line. All within one week once recording begins.
+  - Non-provisional patent deadline added to §4. This is the hardest external clock in the project.
+  - Remaining elicitation questions: Q2.2, Q3.2, Q3.3, Q3.4, Q3.5, Q4.2, Q4.3, Q4.4, Q5.1, Q5.2, Q5.3, Q6.2, Q6.3, Q7.2, Q7.3, Q8.1, Q8.2, Q9.1, Q9.2, Q10.1, Q10.2 — all HIGH or lower, none BLOCKING.
+  - Everything committed directly to main throughout the session. Branch claude/repo-structure-setup-mvrRI was merged to main early in the session; all subsequent work was committed directly to main.
+  - Next session pickup point: (1) decide whether to run HIGH elicitation questions or shift to Android source-polar module; (2) if build path — scaffold source-polar Kotlin module with BiometricSource interface, PolarBleBiometricSource stub, auto-detection logic skeleton; (3) open question — should corpus/events/ be gitignored for live captures while keeping the seed event tracked?
 ```
 
 ---
