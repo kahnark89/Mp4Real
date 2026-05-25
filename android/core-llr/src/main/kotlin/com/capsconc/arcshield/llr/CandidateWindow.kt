@@ -33,8 +33,18 @@ data class CandidateWindow(
     /** Sustained gaze dwell on anchor. 0.0 until gaze tracking is wired (Phase 1). */
     val lambdaGaze:       Float,
 
-    /** HR delta + HRV-RMSSD ratio. 0.0 until Λ_bio is wired (next backlog item). */
+    /**
+     * HR-delta GLR + RMSSD-deviation GLR, scaled by [activityGate].
+     * 0.0 when no BiometricSource is connected or baseline.biometricAvailable = false.
+     */
     val lambdaBio:        Float,
+
+    /**
+     * Activity gate factor applied to Λ_bio (0.0–1.0, per CLAUDE.md §4.1).
+     * 1.0 = resting, 0.8 = light, 0.4 = moderate, 0.1 = vigorous.
+     * Exposed here so the shadow-mode labeler can diagnose Λ_bio suppression.
+     */
+    val activityGate:     Float,
 
     /** True when lambda ≥ config.tau. This is what the labeler marks TP or FP. */
     val thresholdReached: Boolean,

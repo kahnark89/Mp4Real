@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-24 — Claude Code — core-llr: Λ_env gate in shadow mode (FFT, KL divergence, rolling accel RMS, LlrGate) |
+| **Last working session** | 2026-05-25 — Claude Code — core-llr: Λ_bio wired (HR delta GLR + RMSSD GLR + activity gate); RollingBioStats; 10 new unit tests |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -65,7 +65,8 @@ _None observed yet._
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
 1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
-2. **Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived. Plug into the `lambdaBio = 0f` placeholder in `LlrGate.kt`.
+2. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
+3. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
 6. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
 7. **Implement `PreEnvSource.captureBaseline()`** as a 90-second sample-all-channels routine triggered manually at shift start (auto-detection deferred to Phase 2).
 8. **[MOD-002] Fix `corpus_dir` path resolution in `load_config()`** — resolve relative to `config.toml` location, not CWD. Prevents breakage when `server.py` is invoked from a different directory. File: `backend/api/server.py`, `load_config()`.
@@ -99,6 +100,7 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json` (project-level); MOD-002 path resolution fix in `load_config()` | Server invocable from any CWD |
 | 2026-05-24 | — | MCP server (Session 001) — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), contract test suite (28/28 passing) | Built in prior session; unpacked from zip into `backend/api/` |
+| 2026-05-25 | W-003 | `core-llr` Λ_bio — `RollingBioStats` (rolling HR mean/variance + RMSSD), activity gate (resting/light/moderate/vigorous), HR-delta GLR + RMSSD-deviation GLR wired into `llrGate()`; 10 unit tests; `activityGate` field added to `CandidateWindow`; bio fields added to `LlrBaseline`; `hrSamples`/`rrSamples` optional params on `llrGate()` | Nonlinear HRV (SD1/SD2, sample entropy) stubbed as `lambdaHrvNl = 0f` — Phase 2 after H10 ECG path live |
 | 2026-05-24 | W-002 | `core-llr` Λ_env gate — `RealFft` (Cooley-Tukey), `KlDivergence`, `RollingAccelRms` (Welford), `LlrBaseline`, `LlrConfig`, `CandidateWindow`, `llrGate()` in shadow mode; 3 unit test classes | Λ_motion + Λ_gaze = 0.0 stubs; Λ_bio = 0.0 placeholder wired for next item |
 | 2026-05-24 | W-001 | `source-polar` Kotlin module scaffolded — `BiometricSource` interface + sample types in `core-schema`, `PolarBleBiometricSource` + `PolarDeviceType` in `source-polar`, full Gradle infra (settings, version catalog, wrapper) | Clock anchoring, gap emission, reconnect backoff, H10 offline recording stub all implemented |
 | 2026-05-24 | — | MOD-005 `escalation_delta` coherence check — already implemented in `json_backend.py` lines 191–201 and tested in `TestIngest`; session log was stale | No action required |
@@ -221,6 +223,18 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - 3 unit test classes (12 tests): RealFftTest, KlDivergenceTest, RollingStatsTest.
   - Added junit + kotlinx-coroutines-test to libs.versions.toml.
   - Next session pickup point: wire Λ_bio (HR delta + HRV-RMSSD) in core-llr.
+```
+
+```
+2026-05-25 — Claude Code — core-llr Λ_bio wired
+  - Created RollingBioStats (internal): rolling HR window (time-based, 5-min) → mean + variance; rolling RR window → RMSSD. Mutex-protected in LlrGate since HR and RR producers run concurrently.
+  - Updated LlrBaseline: added hrBaselineBpm, hrVarianceBpm, rmssdBaselineMs, rmssdVarianceMs, biometricAvailable (all defaulted — backward compatible).
+  - Updated LlrConfig: added activity gate thresholds (lightAccelThresholdMg, moderateAccelThresholdMg, vigorousAccelThresholdMg) and gate factors.
+  - Updated CandidateWindow: added activityGate field for shadow-mode labeler diagnostics.
+  - Updated llrGate(): added optional hrSamples + rrSamples flows (default emptyFlow — backward compatible). HR producer + RR producer coroutines added. Λ_hr (Gaussian-shift GLR) + Λ_rmssd (Gaussian-shift GLR) + activity gate computed in eval ticker. lambdaHrvNl stubbed 0f (nonlinear HRV — Phase 2).
+  - New test class: RollingBioStatsTest — 10 tests covering HR mean/variance, RMSSD formula, rolling eviction, reset.
+  - Existing 3 test classes unaffected (no CandidateWindow or LlrBaseline construction in those tests).
+  - Next session pickup point: implement LlrBaselineBuilder (90-second I-frame accumulator for all channels), then wire source-camerax (Λ_motion stub → live).
 ```
 
 ---

@@ -37,4 +37,29 @@ data class LlrConfig(
 
     /** W_post: post-trigger window, per CLAUDE.md §3.3. */
     val postWindowMs: Long = 60_000L,
+
+    // ------------------------------------------------------------------
+    // Λ_bio: activity gating thresholds and gate factors.
+    // High physical activity confounds cardiovascular HRV signal, so Λ_bio
+    // is scaled down during moderate/vigorous work (CLAUDE.md §4.1).
+    // Thresholds are phone-accel RMS in mG (phone carried in a shirt pocket).
+    // ------------------------------------------------------------------
+
+    /** Phone-accel RMS (mG) above which activity is classified as light. */
+    val lightAccelThresholdMg: Float = 200f,
+
+    /** Phone-accel RMS (mG) above which activity is classified as moderate. */
+    val moderateAccelThresholdMg: Float = 500f,
+
+    /** Phone-accel RMS (mG) above which activity is classified as vigorous. */
+    val vigorousAccelThresholdMg: Float = 1_000f,
+
+    /** Λ_bio scaling factor for light activity (0.0–1.0). */
+    val lightGateFactor: Float = 0.8f,
+
+    /** Λ_bio scaling factor for moderate activity (0.0–1.0). */
+    val moderateGateFactor: Float = 0.4f,
+
+    /** Λ_bio scaling factor for vigorous activity (0.0–1.0). */
+    val vigorousGateFactor: Float = 0.1f,
 )

@@ -29,14 +29,44 @@ data class LlrBaseline(
 
     val capturedAtNanos: Long,
     val durationMs:      Long,
+
+    // ------------------------------------------------------------------
+    // Biometric baseline — populated from I-frame when a BiometricSource
+    // is connected at shift start. All fields default to 0 / unavailable
+    // when no biometric source was present during the I-frame capture.
+    // ------------------------------------------------------------------
+
+    /** Mean HR in BPM over the I-frame. 0f when biometricAvailable = false. */
+    val hrBaselineBpm: Float = 0f,
+
+    /**
+     * Variance of HR in BPM² over the I-frame. Floored to 1e-6.
+     * Denominator in Λ_hr = (hr_current − µ)² / (2σ²).
+     */
+    val hrVarianceBpm: Float = 1e-6f,
+
+    /** Mean RMSSD in ms over the I-frame. 0f when biometricAvailable = false. */
+    val rmssdBaselineMs: Float = 0f,
+
+    /**
+     * Variance of RMSSD in ms² over the I-frame. Floored to 1e-6.
+     * Denominator in Λ_rmssd = (rmssd_current − µ)² / (2σ²).
+     */
+    val rmssdVarianceMs: Float = 1e-6f,
+
+    /** True when HR/RMSSD baseline was captured from a live BiometricSource. */
+    val biometricAvailable: Boolean = false,
 ) {
     // FloatArray doesn't implement structural equality.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is LlrBaseline) return false
-        return capturedAtNanos == other.capturedAtNanos
-            && durationMs      == other.durationMs
-            && accelRmsBaseline == other.accelRmsBaseline
+        return capturedAtNanos    == other.capturedAtNanos
+            && durationMs         == other.durationMs
+            && accelRmsBaseline   == other.accelRmsBaseline
+            && hrBaselineBpm      == other.hrBaselineBpm
+            && rmssdBaselineMs    == other.rmssdBaselineMs
+            && biometricAvailable == other.biometricAvailable
             && acousticSpectrum.contentEquals(other.acousticSpectrum)
     }
     override fun hashCode(): Int =
