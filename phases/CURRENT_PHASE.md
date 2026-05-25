@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-007: core-codec module (Mp4RealMuxer interface + AndroidMp4RealMuxer + Mp4RealWriter + EpsSyncMeasure + SessionMetadata sidecar; 23 unit tests) |
+| **Last working session** | 2026-05-25 — Claude Code — W-008: source-vision-telemetry module (VisionTelemetrySource + HollowellChannelPresets; PlcTelemetrySource + LlmClient interfaces in core-schema; 11 unit tests) |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -64,7 +64,7 @@ _None observed yet._
 
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
-1. **[W-008] Scaffold `source-vision-telemetry` module** — Architectural pivot to bypass the blocked PLC integration. Implement `VisionTelemetrySource` conforming to the `PlcTelemetrySource` interface. Wire `CameraXCaptureSource` frame extraction triggered by `gaze_dwell` to pass frames to `LlmClient`. Implement parsing logic to coerce LLM output into the `TelemetrySample` schema. Include required mathematical transformations in the extraction pipeline; specifically, optical readouts of motor RPM must be divided by the 20:1 gearbox ratio to record actual screw RPM in the graph.
+1. **[W-009] Build `core-capture`** — Ring buffer (circular, all channels), MediaCodec H.265/AAC encoding, mux pipeline connecting LLR gate fire → Mp4RealWriter, ε_sync NTP-style handshake with Polar, CaptureSession lifecycle. Critical path item for Phase 1 acceptance.
 2. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
 3. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
@@ -98,6 +98,8 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-25 | W-008 | `source-vision-telemetry` module — `VisionTelemetrySource` implementing `PlcTelemetrySource` via LLM optical gauge reading; `HollowellChannelPresets` (motor_rpm, screw_rpm, melt_temp_f, line_speed_fpm); `PlcTelemetrySource` + `LlmClient` interfaces added to `core-schema`; 11 unit tests (routing, gearbox transform, LLM parse failure, snapshotAt) | Unblocks R_phys extraction without PLC API; screw_rpm = motor_rpm ÷ 20.0 transform enforced at data level |
+| 2026-05-25 | W-007 | `core-codec` module — `Mp4RealMuxer` interface, `AndroidMp4RealMuxer`, `Mp4RealWriter`, `EpsSyncMeasure`, `SessionMetadata` + sidecar writer; 23 JVM unit tests | Standard MPEG-4 container (fMP4 streaming upgrade is Phase 2); metadata tracks use text/vtt API 26+ safe |
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json`; `corpus_dir` resolved relative to `config.toml` (not CWD) | Server invocable from any working directory |
 | 2026-05-24 | — | MCP server Session 001 — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), 28/28 contract tests | Built prior to this repo; unpacked from `tools/arcshield-mcp-v1.zip` |
@@ -106,9 +108,6 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-25 | W-004 | `LlrBaselineBuilder` — `buildBaseline()` suspend function + `SpectralAccumulator` (Welford per-bin FFT mean/variance) + `computeRmssdStats()` (20-beat sub-window RMSSD variance) + Welford online accel-RMS stats; injectable clock for JVM testability; 13 unit tests with `runTest` + finite flows | Timeout-based collection works for both production (infinite sensor flows cancel at durationMs) and tests (finite flows complete naturally) |
 | 2026-05-25 | W-003 | `core-llr` Λ_bio — `RollingBioStats` (rolling HR mean/variance + RMSSD), activity gate (resting/light/moderate/vigorous), HR-delta GLR + RMSSD-deviation GLR wired into `llrGate()`; 10 unit tests; `activityGate` field added to `CandidateWindow`; bio fields added to `LlrBaseline`; `hrSamples`/`rrSamples` optional params on `llrGate()` | Nonlinear HRV (SD1/SD2, sample entropy) stubbed as `lambdaHrvNl = 0f` — Phase 2 after H10 ECG path live |
 | 2026-05-24 | W-002 | `core-llr` Λ_env gate — `RealFft` (Cooley-Tukey), `KlDivergence`, `RollingAccelRms` (Welford), `LlrBaseline`, `LlrConfig`, `CandidateWindow`, `llrGate()` in shadow mode; 3 unit test classes | Λ_motion + Λ_gaze = 0.0 stubs; Λ_bio = 0.0 placeholder wired for next item |
-| 2026-05-24 | W-001 | `source-polar` Kotlin module scaffolded — `BiometricSource` interface + sample types in `core-schema`, `PolarBleBiometricSource` + `PolarDeviceType` in `source-polar`, full Gradle infra (settings, version catalog, wrapper) | Clock anchoring, gap emission, reconnect backoff, H10 offline recording stub all implemented |
-| 2026-05-24 | — | MOD-005 `escalation_delta` coherence check — already implemented in `json_backend.py` lines 191–201 and tested in `TestIngest`; session log was stale | No action required |
-| 2026-05-24 | W-000 | Repository scaffolded per CLAUDE.md §10 — full directory tree, files organized, CURRENT_PHASE.md moved to phases/ | Initial structure commit |
 
 ---
 
@@ -296,6 +295,19 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - New test class: RollingBioStatsTest — 10 tests covering HR mean/variance, RMSSD formula, rolling eviction, reset.
   - Existing 3 test classes unaffected (no CandidateWindow or LlrBaseline construction in those tests).
   - Next session pickup point: implement LlrBaselineBuilder (90-second I-frame accumulator for all channels), then wire source-camerax (Λ_motion stub → live).
+```
+
+```
+2026-05-25 — Claude Code — W-008: source-vision-telemetry module
+  - Added PlcTelemetrySource + TelemetrySample + TelemetrySnapshot to core-schema (telemetry package).
+  - Added LlmClient + SensoryContext + ElicitationPrompt + ElicitationResponse + GuidanceQuery + TwinGuidance to core-schema (llm package). Phase 1 minimal types; full elicitation wired in Phase 3.
+  - Created android/source-vision-telemetry/ module registered in settings.gradle.kts.
+  - VisionTelemetrySource: implements PlcTelemetrySource; retains latestFrame via AtomicReference; channel() emits Flow<TelemetrySample> at sampleIntervalMs polling; skips poll if no frame or if LLM returns null parsedValue; snapshotAt() reads all channels synchronously on the most recent frame; injectable clock for JVM testability.
+  - HollowellChannelPresets: motor_rpm (identity transform), screw_rpm (÷20.0 gearbox), melt_temp_f, line_speed_fpm; ppvcLine1 preset config.
+  - 11 JVM unit tests: availableChannels, unknown channelId → emptyFlow, frame present → emits sample, no frame → timeout, screw_rpm transform, motor_rpm identity, both channels diverge by ratio, null LLM → no sample, snapshotAt empty, snapshotAt all channels, snapshotAt null LLM → empty.
+  - Run: ./gradlew :source-vision-telemetry:test on a machine with Android SDK.
+  - docs/BRAINSTORM_HANDOFF.md committed.
+  - Next session pickup point: build core-capture (W-009) — ring buffer + MediaCodec H.265/AAC encoding + mux pipeline connecting LLR gate fire → Mp4RealWriter.
 ```
 
 ---
