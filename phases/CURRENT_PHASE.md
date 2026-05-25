@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-011: :app module — Compose entry point + Hilt DI; SessionViewModel; MainScreen + nav to LabelerScreen |
+| **Last working session** | 2026-05-25 — Kahn — architectural clarification: biometrics confirmed optional; Λ_env-only corpus build path unblocked |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -63,7 +63,8 @@ _None observed yet._
 
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
-1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement.
+1. **Run Λ_env-only shadow sessions to begin corpus building** — no H10 required. Leave `POLAR_DEVICE_ID` blank in `local.properties`; app runs in acoustic + accel + motion mode (Λ_bio = 0). Start accumulating labeled candidate windows now. Label sessions separately from future full-signal sessions — do not mix the two τ calibration populations. Target: 10–15 Λ_env-only events as a warm corpus before H10 bench test.
+2. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement. **No longer blocks corpus building** — see item 1. Unblocks full-signal (Λ_env + Λ_bio) sessions and the second τ calibration pass.
 2. ~~**Scaffold `:app` module** — Compose entry point + Hilt DI wiring all sources → core-capture → core-codec. Wire `CaptureSession.candidateWindows` flow into `LabelerScreen` as debug overlay. Shadow-mode-labeler needs to be reachable from the main screen.~~ **DONE 2026-05-25** — see §5.
 3. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
@@ -130,7 +131,7 @@ Architecture-level questions where Claude Code should **not** decide unilaterall
 
 Things observed during recent sessions that **could** become problems if they continue. Not yet blocking. Re-evaluate weekly.
 
-- _Nothing currently flagged._
+- **τ calibration population mixing** — Λ_env-only sessions (no H10) produce a systematically lower Λ distribution than full Λ_env + Λ_bio sessions. Mixing them when fitting τ will skew the threshold. Keep two separate label export files and calibrate τ independently per population until H10 is in continuous use. The TauCalibrator in shadow-mode-labeler operates per-file, so the tooling already supports this — the risk is operator error in combining exports.
 
 Common patterns to watch for (delete this once seen at least once, since at that point it's documented above):
 
@@ -329,6 +330,16 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Next session pickup point: scaffold :app module + Hilt DI, wire CaptureSession end-to-end, OR implement ClaudeVisionClient in llm-claude to make VisionTelemetrySource functional.
 ```
 
+```
+2026-05-25 — Kahn — biometrics optional clarification
+  - Confirmed via schema inspection: all CIAER+ biometric fields (biometric_snapshot, biometric_signature) are Optional with None defaults. json_backend enforces 4 invariants at write time — none touch biometric completeness.
+  - LlrGate already handles absent biometrics gracefully: when biometricAvailable=false or bioSnap=null, lambdaBio=0f and the gate runs on Λ_env alone (acoustic + accel + motion). No code changes required.
+  - Implication: corpus building is unblocked from H10 availability. Can run Λ_env-only sessions now without waiting for facility agreement or H10 bench test.
+  - Implication: seed event (6ab2942f) had hand-crafted biometric values — that's fine for prior art purposes but live captures without H10 will have null biometric_snapshot.
+  - Risk flagged in §7: do not mix Λ_env-only and full-signal session populations when calibrating τ.
+  - Backlog updated: new item 1 (Λ_env-only corpus sessions), H10 bench test moved to item 2 with note that it no longer blocks corpus growth.
+  - Next session pickup point: install APK on device, run first Λ_env-only shadow session, label candidate windows, verify τ suggestion appears in labeler.
+```
 ```
 2026-05-25 — Claude Code — W-011: :app module scaffold
   - Added ksp 2.0.21-1.0.27, hilt 2.51.1, hilt-navigation-compose 1.2.0, navigation-compose 2.8.0 to libs.versions.toml.
