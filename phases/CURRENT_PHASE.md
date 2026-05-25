@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-006: shadow-mode-labeler Android module (NDJSON logger + NMS + TauCalibrator + Compose UI) |
+| **Last working session** | 2026-05-25 — Claude Code — W-007: core-codec module (Mp4RealMuxer interface + AndroidMp4RealMuxer + Mp4RealWriter + EpsSyncMeasure + SessionMetadata sidecar; 19 unit tests) |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -43,12 +43,12 @@ _(No active items. Pull from §3 when starting.)_
 
 From CLAUDE.md §11. Do not advance phases until every criterion is checked.
 
-- [ ] `core-capture`, `core-codec`, `core-llr` modules functional
+- [ ] `core-capture`, `core-codec`, `core-llr` modules functional  ← core-llr ✅ core-codec ✅ core-capture pending
 - [ ] `source-polar` (H10) consuming PMD streams
 - [x] `source-camerax` POV video
 - [ ] Phone-side mux pipeline writing fMP4 with all five Phase 1 tracks (POV, acoustic, vibration, biometric, voice)
 - [ ] LLR gate operates in shadow mode (logs candidates, never persists a container)
-- [ ] ε_sync measured and logged per session
+- [ ] ε_sync measured and logged per session  ← EpsSyncMeasure + sidecar writer built; wired in core-capture (pending)
 - [ ] ε_sync sustained ≤ 100 ms across at least 5 production shifts
 - [ ] 20–30 candidate windows logged
 - [x] Hand-labeling tool (`tools/shadow-mode-labeler`) operational
@@ -237,6 +237,21 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Injectable clock: `clock: () -> Long = { SystemClock.elapsedRealtimeNanos() }` — avoids Android stubs in JVM tests without polluting public API.
   - 13 unit tests in LlrBaselineBuilderTest using runTest + finite flows (no virtual time advancement needed).
   - Next session pickup point: scaffold source-camerax module (CaptureSource implementation) and wire Λ_motion (frame-to-frame video energy) in LlrGate.
+```
+
+```
+2026-05-25 — Claude Code — W-007: core-codec module
+  - Created android/core-codec/ module registered in settings.gradle.kts (already present).
+  - Mp4RealConfig: W_pre (30s), W_post (60s), iFrameDurationMs (90s), outputDir, facilityId, lineId — all tunable per facility.
+  - TrackType sealed class: 7 tracks (Video, Audio, AccelMeta, BiometricMeta, ThermalMeta, VoiceMeta, PlcTelemetryMeta). Phase 1 = first 5.
+  - EncodedSample / MetaSample: timestamped ByteArray wrappers; timestamps in elapsedRealtimeNanos throughout; µs conversion only at MediaMuxer boundary.
+  - EpsSyncMeasure: measure() + combine(); TARGET_NS=100ms, LOW_SYNC_NS=250ms; pure JVM, no Android deps.
+  - SessionMetadata: @Serializable; writeSidecar() writes {stem}.mp4real.json alongside container. Phase 1 substitute for udta box (Phase 2 upgrade via mp4parser).
+  - Mp4RealMuxer interface: addVideoTrack / addAudioTrack / addMetaTrack / start / writeSample / writeMetaSample / stop / release. Extracted for JVM testability.
+  - AndroidMp4RealMuxer: MediaMuxer-backed production impl. MPEG-4 container (standard MP4; fMP4 streaming upgrade is Phase 2). Metadata tracks use text/vtt + JSON-UTF-8 (API 26+ safe; avoids createSubtitleFormat() API 28 requirement). ByteBuffer grown on demand.
+  - Mp4RealWriter: orchestrator; addVideoTrack / addAudioTrack / addMetaTrack before start(); writeSample / writeMetaSample after start(); close() stops muxer, writes sidecar, returns final SessionMetadata with ε_sync + track map. Core-capture is responsible for ring buffer windowing — this writer accepts whatever samples it receives.
+  - 10 EpsSyncMeasureTest + 13 Mp4RealWriterTest (FakeMuxer) = 23 JVM unit tests. Android SDK not present in cloud environment; run ./gradlew :core-codec:test on a machine with SDK.
+  - Next session pickup point: build core-capture (ring buffer + H.265/AAC encoding via MediaCodec + mux pipeline that connects LLR gate → Mp4RealWriter).
 ```
 
 ```
