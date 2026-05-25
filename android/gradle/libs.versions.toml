@@ -6,6 +6,7 @@ coroutines      = "1.8.1"
 rxjava3         = "3.1.9"
 polarBle        = "5.3.1"
 junit           = "4.13.2"
+cameraX         = "1.3.4"
 
 [libraries]
 androidx-core-ktx          = { group = "androidx.core",              name = "core-ktx",                    version.ref = "coreKtx"    }
@@ -16,6 +17,9 @@ kotlinx-coroutines-test    = { group = "org.jetbrains.kotlinx",      name = "kot
 rxjava3                    = { group = "io.reactivex.rxjava3",        name = "rxjava",                      version.ref = "rxjava3"    }
 polar-ble-sdk              = { group = "com.github.polarofficial",    name = "polar-ble-sdk",               version.ref = "polarBle"   }
 junit                      = { group = "junit",                       name = "junit",                       version.ref = "junit"      }
+camerax-core               = { group = "androidx.camera",            name = "camera-core",                 version.ref = "cameraX"    }
+camerax-camera2            = { group = "androidx.camera",            name = "camera-camera2",              version.ref = "cameraX"    }
+camerax-lifecycle          = { group = "androidx.camera",            name = "camera-lifecycle",            version.ref = "cameraX"    }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp"    }

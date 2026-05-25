@@ -1,12 +1,14 @@
 package com.capsconc.arcshield.llr
 
 import android.os.SystemClock
+import com.capsconc.arcshield.llr.internal.FrameDiffMotion
 import com.capsconc.arcshield.llr.internal.RealFft
 import com.capsconc.arcshield.llr.internal.RollingAccelRms
 import com.capsconc.arcshield.schema.biometric.AccelSample
 import com.capsconc.arcshield.schema.biometric.HrSample
 import com.capsconc.arcshield.schema.biometric.RrSample
 import com.capsconc.arcshield.schema.capture.AudioFrame
+import com.capsconc.arcshield.schema.capture.VideoFrame
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -33,11 +35,12 @@ import kotlin.math.sqrt
 suspend fun buildBaseline(
     audioFrames:  Flow<AudioFrame>,
     accelSamples: Flow<AccelSample>,
-    config:       LlrConfig       = LlrConfig(),
-    hrSamples:    Flow<HrSample>  = emptyFlow(),
-    rrSamples:    Flow<RrSample>  = emptyFlow(),
-    durationMs:   Long            = 90_000L,
-    clock:        () -> Long      = { SystemClock.elapsedRealtimeNanos() },
+    config:       LlrConfig        = LlrConfig(),
+    hrSamples:    Flow<HrSample>   = emptyFlow(),
+    rrSamples:    Flow<RrSample>   = emptyFlow(),
+    videoFrames:  Flow<VideoFrame> = emptyFlow(),
+    durationMs:   Long             = 90_000L,
+    clock:        () -> Long       = { SystemClock.elapsedRealtimeNanos() },
 ): LlrBaseline {
 
     val startNanos = clock()
@@ -54,6 +57,12 @@ suspend fun buildBaseline(
 
     val hrValues: MutableList<Int>  = mutableListOf()
     val rrValues: MutableList<Int>  = mutableListOf()
+
+    // Motion MAD accumulator (Welford online)
+    val motionDiff = FrameDiffMotion()
+    var motionCount = 0L
+    var motionMean  = 0.0
+    var motionM2    = 0.0
 
     // ---- Collect all flows concurrently for durationMs --------------------------
     // withTimeoutOrNull cancels all launchers when the timer fires.
@@ -78,6 +87,18 @@ suspend fun buildBaseline(
             }
             launch { hrSamples.collect { hrValues.add(it.bpm) } }
             launch { rrSamples.collect { rrValues.add(it.rrMs) } }
+            launch {
+                videoFrames.collect { frame ->
+                    val mad = motionDiff.update(frame)
+                    if (mad != null) {
+                        motionCount++
+                        val d  = mad.toDouble() - motionMean
+                        motionMean  += d / motionCount
+                        val d2 = mad.toDouble() - motionMean
+                        motionM2 += d * d2
+                    }
+                }
+            }
         }
     }
 
@@ -102,6 +123,12 @@ suspend fun buildBaseline(
 
     val (rmssdMean, rmssdVar) = computeRmssdStats(rrValues)
 
+    val hasMotion         = motionCount > 0
+    val motionBaselineMad = motionMean.toFloat()
+    val motionVarianceMad = if (motionCount > 1)
+        max((motionM2 / (motionCount - 1)).toFloat(), 1e-6f)
+    else 1e-6f
+
     return LlrBaseline(
         acousticSpectrum         = meanSpec,
         acousticSpectrumVariance = varSpec,
@@ -114,6 +141,9 @@ suspend fun buildBaseline(
         rmssdBaselineMs          = rmssdMean,
         rmssdVarianceMs          = rmssdVar,
         biometricAvailable       = hasBio,
+        motionBaselineMad        = motionBaselineMad,
+        motionVarianceMad        = motionVarianceMad,
+        motionAvailable          = hasMotion,
     )
 }
 

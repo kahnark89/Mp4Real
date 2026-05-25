@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — core-llr: LlrBaselineBuilder (90-second I-frame accumulator, all channels, 13 unit tests) |
+| **Last working session** | 2026-05-25 — Claude Code — W-005: source-camerax module (CameraXCaptureSource + AudioRecord) + FrameDiffMotion + Λ_motion wired in core-llr |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -45,7 +45,7 @@ From CLAUDE.md §11. Do not advance phases until every criterion is checked.
 
 - [ ] `core-capture`, `core-codec`, `core-llr` modules functional
 - [ ] `source-polar` (H10) consuming PMD streams
-- [ ] `source-camerax` POV video
+- [x] `source-camerax` POV video
 - [ ] Phone-side mux pipeline writing fMP4 with all five Phase 1 tracks (POV, acoustic, vibration, biometric, voice)
 - [ ] LLR gate operates in shadow mode (logs candidates, never persists a container)
 - [ ] ε_sync measured and logged per session
@@ -67,7 +67,7 @@ Ordered by intended pickup, not by priority alone. Top of list is next.
 1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
 2. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 3. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
-4. **Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`. Module location: `android/source-camerax/`. Implement `CaptureSource` against CameraX; compute frame diff as mean absolute pixel delta; expose as `Flow<VideoFrame>`.
+4. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
 5. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
 6. **[MCP-MOD-001] `SqliteCorpusBackend`** — Trigger: `corpus_depth > ~500` OR `list_failure_modes` latency > 200 ms. New file `backend/api/arcshield/corpus/backends/sqlite_backend.py`. Use `aiosqlite`; indexed columns: `failure_mode_tag`, `escalation_state`, `graph_weight`, `operator_id`. Add `"sqlite"` to the `params` fixture in `tests/test_corpus_backend_contract.py` — all 28 contract tests run automatically. Factory entry: `get_backend("sqlite", ...)` in `backends/__init__.py`. Config switch: `config.toml [backend] type = "sqlite"`.
 7. **[MCP-MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: after `escalation_state` index pre-filter, compute per-instrument normalized distance `1 / (1 + |query_val − stored_val|)` instead of coverage-only score. Update the `IMPLEMENTATION NOTE` marker in `server.py` and the abstract method docstring in `backend.py`. Phase 3: replace with embedding ANN (HNSW) once corpus exceeds ~200 events per `failure_mode_tag`.
@@ -100,6 +100,7 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json`; `corpus_dir` resolved relative to `config.toml` (not CWD) | Server invocable from any working directory |
 | 2026-05-24 | — | MCP server Session 001 — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), 28/28 contract tests | Built prior to this repo; unpacked from `tools/arcshield-mcp-v1.zip` |
+| 2026-05-25 | W-005 | `source-camerax` module — `CameraXCaptureSource` implementing `CaptureSource` (CameraX ImageAnalysis NV21 + AudioRecord 48kHz mono); `FrameDiffMotion` (Y-plane MAD with subsample=4); `Λ_motion` Gaussian-shift GLR wired in `LlrGate`; motion baseline fields added to `LlrBaseline`; `buildBaseline()` accepts `videoFrames` flow; CameraX 1.3.4 added to version catalog; 8 `FrameDiffMotionTest` unit tests; unsigned byte handling verified | Λ_motion now live when `motionAvailable = true` in baseline; 0.0 fallback when no video source connected |
 | 2026-05-25 | W-004 | `LlrBaselineBuilder` — `buildBaseline()` suspend function + `SpectralAccumulator` (Welford per-bin FFT mean/variance) + `computeRmssdStats()` (20-beat sub-window RMSSD variance) + Welford online accel-RMS stats; injectable clock for JVM testability; 13 unit tests with `runTest` + finite flows | Timeout-based collection works for both production (infinite sensor flows cancel at durationMs) and tests (finite flows complete naturally) |
 | 2026-05-25 | W-003 | `core-llr` Λ_bio — `RollingBioStats` (rolling HR mean/variance + RMSSD), activity gate (resting/light/moderate/vigorous), HR-delta GLR + RMSSD-deviation GLR wired into `llrGate()`; 10 unit tests; `activityGate` field added to `CandidateWindow`; bio fields added to `LlrBaseline`; `hrSamples`/`rrSamples` optional params on `llrGate()` | Nonlinear HRV (SD1/SD2, sample entropy) stubbed as `lambdaHrvNl = 0f` — Phase 2 after H10 ECG path live |
 | 2026-05-24 | W-002 | `core-llr` Λ_env gate — `RealFft` (Cooley-Tukey), `KlDivergence`, `RollingAccelRms` (Welford), `LlrBaseline`, `LlrConfig`, `CandidateWindow`, `llrGate()` in shadow mode; 3 unit test classes | Λ_motion + Λ_gaze = 0.0 stubs; Λ_bio = 0.0 placeholder wired for next item |
@@ -235,6 +236,20 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Injectable clock: `clock: () -> Long = { SystemClock.elapsedRealtimeNanos() }` — avoids Android stubs in JVM tests without polluting public API.
   - 13 unit tests in LlrBaselineBuilderTest using runTest + finite flows (no virtual time advancement needed).
   - Next session pickup point: scaffold source-camerax module (CaptureSource implementation) and wire Λ_motion (frame-to-frame video energy) in LlrGate.
+```
+
+```
+2026-05-25 — Claude Code — W-005: source-camerax + Λ_motion
+  - Merged origin/main (310d2ae MCP consolidation) into feature branch before starting.
+  - Created android/source-camerax/ module: build.gradle.kts (CameraX 1.3.4), AndroidManifest (CAMERA + RECORD_AUDIO permissions), CameraXCaptureSource.kt.
+  - CameraXCaptureSource: videoFrames() via CameraX ImageAnalysis (STRATEGY_KEEP_ONLY_LATEST, YUV_420_888 → NV21 via ImageProxy.toVideoFrame()); audioFrames() via AudioRecord 48kHz mono 480-sample buffers (elapsedRealtimeNanos timestamps on all frames).
+  - Created FrameDiffMotion (core-llr/internal): Y-plane MAD with subsample=4; null on first frame; unsigned byte arithmetic (0xFF → 255, not -1); reset() clears prev frame.
+  - Updated LlrBaseline: added motionBaselineMad, motionVarianceMad, motionAvailable (all defaulted — backward compatible with existing tests).
+  - Updated LlrGate: added optional videoFrames flow (default emptyFlow); video producer coroutine; Λ_motion Gaussian-shift GLR; 0.0 when motionAvailable = false.
+  - Updated LlrBaselineBuilder: added videoFrames param; Welford online MAD accumulator; motion fields in returned LlrBaseline.
+  - Added CameraX 1.3.4 to libs.versions.toml (camerax-core, camerax-camera2, camerax-lifecycle).
+  - 8 unit tests in FrameDiffMotionTest: first-frame null, identical frames → 0, known uniform diff, subsample invariance on uniform frames, reset behavior, unsigned byte handling.
+  - Next session pickup point: build tools/shadow-mode-labeler (minimal Compose screen) OR bench-test source-polar + source-camerax on device.
 ```
 
 ```

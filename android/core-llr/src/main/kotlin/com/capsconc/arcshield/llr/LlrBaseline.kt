@@ -56,6 +56,27 @@ data class LlrBaseline(
 
     /** True when HR/RMSSD baseline was captured from a live BiometricSource. */
     val biometricAvailable: Boolean = false,
+
+    // ------------------------------------------------------------------
+    // Motion baseline — populated when a CaptureSource video flow was
+    // collected during the I-frame. All fields default to 0 / unavailable
+    // when no video source was present.
+    // ------------------------------------------------------------------
+
+    /**
+     * Mean frame-to-frame MAD (mean absolute difference on Y-plane, 0..255 range)
+     * over the I-frame. 0f when motionAvailable = false.
+     */
+    val motionBaselineMad: Float = 0f,
+
+    /**
+     * Variance of frame MAD over the I-frame. Floored to 1e-6.
+     * Denominator in Λ_motion = (mad_current − µ)² / (2σ²).
+     */
+    val motionVarianceMad: Float = 1e-6f,
+
+    /** True when frame-diff motion baseline was captured from a live CaptureSource. */
+    val motionAvailable: Boolean = false,
 ) {
     // FloatArray doesn't implement structural equality.
     override fun equals(other: Any?): Boolean {
@@ -67,6 +88,8 @@ data class LlrBaseline(
             && hrBaselineBpm      == other.hrBaselineBpm
             && rmssdBaselineMs    == other.rmssdBaselineMs
             && biometricAvailable == other.biometricAvailable
+            && motionBaselineMad  == other.motionBaselineMad
+            && motionAvailable    == other.motionAvailable
             && acousticSpectrum.contentEquals(other.acousticSpectrum)
     }
     override fun hashCode(): Int =

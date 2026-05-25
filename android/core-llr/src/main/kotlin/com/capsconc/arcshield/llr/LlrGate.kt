@@ -1,6 +1,7 @@
 package com.capsconc.arcshield.llr
 
 import android.os.SystemClock
+import com.capsconc.arcshield.llr.internal.FrameDiffMotion
 import com.capsconc.arcshield.llr.internal.KlDivergence
 import com.capsconc.arcshield.llr.internal.RealFft
 import com.capsconc.arcshield.llr.internal.RollingAccelRms
@@ -9,6 +10,7 @@ import com.capsconc.arcshield.schema.biometric.AccelSample
 import com.capsconc.arcshield.schema.biometric.HrSample
 import com.capsconc.arcshield.schema.biometric.RrSample
 import com.capsconc.arcshield.schema.capture.AudioFrame
+import com.capsconc.arcshield.schema.capture.VideoFrame
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -29,7 +31,7 @@ import kotlin.math.max
  * Phase 1 Λ_env components:
  *   Λ_acoustic — KL(baseline_spectrum ‖ rolling_spectrum)    ✅ active
  *   Λ_accel    — Gaussian-shift GLR on rolling 5s accel RMS  ✅ active
- *   Λ_motion   — frame-to-frame video energy                 ⚠ stub 0.0 (CameraX not wired)
+ *   Λ_motion   — Gaussian-shift GLR on frame MAD (Y-plane)   ✅ active (0.0 when videoFrames = emptyFlow)
  *   Λ_gaze     — sustained dwell duration                    ⚠ stub 0.0 (gaze not wired)
  *
  * Phase 1 Λ_bio components:
@@ -49,14 +51,19 @@ import kotlin.math.max
  *                     Pass [emptyFlow] (default) when no BiometricSource is connected.
  * @param rrSamples    Flow of R-R intervals from [BiometricSource.rrIntervals].
  *                     Pass [emptyFlow] (default) when device doesn't support R-R.
+ * @param videoFrames  Flow of NV21 frames from [CaptureSource.videoFrames].
+ *                     Pass [emptyFlow] (default) when no camera source is connected.
+ *                     When [baseline.motionAvailable] is false, Λ_motion is 0.0
+ *                     regardless of this flow.
  */
 fun llrGate(
     audioFrames:  Flow<AudioFrame>,
     accelSamples: Flow<AccelSample>,
     baseline:     LlrBaseline,
     config:       LlrConfig,
-    hrSamples:    Flow<HrSample>  = emptyFlow(),
-    rrSamples:    Flow<RrSample>  = emptyFlow(),
+    hrSamples:    Flow<HrSample>   = emptyFlow(),
+    rrSamples:    Flow<RrSample>   = emptyFlow(),
+    videoFrames:  Flow<VideoFrame> = emptyFlow(),
 ): Flow<CandidateWindow> = channelFlow {
 
     // Shared mutable state updated by producer coroutines, read by the eval ticker.
@@ -66,9 +73,13 @@ fun llrGate(
     val latestRmsRef   = AtomicReference(0f)
 
     // Bio stats: protected by mutex since HR and RR can arrive concurrently.
-    val bioStats    = RollingBioStats()
-    val bioMutex    = Mutex()
+    val bioStats     = RollingBioStats()
+    val bioMutex     = Mutex()
     val latestBioRef = AtomicReference<RollingBioStats.BioSnapshot?>(null)
+
+    // Motion: single-producer (video frames arrive sequentially from camera).
+    val frameDiff    = FrameDiffMotion()
+    val latestMadRef = AtomicReference<Float?>(null)
 
     // ---- Audio producer -------------------------------------------------
     launch {
@@ -102,6 +113,14 @@ fun llrGate(
         }
     }
 
+    // ---- Video producer -------------------------------------------------
+    launch {
+        videoFrames.collect { frame ->
+            val mad = frameDiff.update(frame)
+            if (mad != null) latestMadRef.set(mad)
+        }
+    }
+
     // ---- Eval ticker ----------------------------------------------------
     // Runs every evalIntervalMs. Reads latest computed features and emits
     // a CandidateWindow. In shadow mode, emits regardless of threshold.
@@ -124,9 +143,13 @@ fun llrGate(
             (rmsDeviation * rmsDeviation) / (2f * baseline.accelRmsVariance)
         )
 
-        // Phase 1 stubs — wired in later backlog items
-        val lambdaMotion = 0f   // TODO: frame-to-frame video energy (source-camerax)
-        val lambdaGaze   = 0f   // TODO: sustained gaze dwell (gaze tracking)
+        val mad          = latestMadRef.get()
+        val lambdaMotion: Float = if (mad != null && baseline.motionAvailable) {
+            val dev = mad - baseline.motionBaselineMad
+            max(0f, (dev * dev) / (2f * baseline.motionVarianceMad))
+        } else 0f
+
+        val lambdaGaze = 0f   // TODO: sustained gaze dwell (gaze tracking)
 
         // ---- Λ_bio -------------------------------------------------------
         val bioSnap     = latestBioRef.get()
