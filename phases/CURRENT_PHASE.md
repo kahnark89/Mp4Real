@@ -67,12 +67,12 @@ Ordered by intended pickup, not by priority alone. Top of list is next.
 1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
 2. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 3. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
-6. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
-7. **Implement `PreEnvSource.captureBaseline()`** as a 90-second sample-all-channels routine triggered manually at shift start (auto-detection deferred to Phase 2).
-8. **[MOD-002] Fix `corpus_dir` path resolution in `load_config()`** — resolve relative to `config.toml` location, not CWD. Prevents breakage when `server.py` is invoked from a different directory. File: `backend/api/server.py`, `load_config()`.
-9. **[MOD-001] `SqliteCorpusBackend`** — Phase 2 trigger: corpus_depth > ~500 events or `list_failure_modes` scan latency > 200ms. See `backend/api/SESSION_LOG.md` MOD-001 for full spec.
-10. **[MOD-004] Per-operator write auth** — Phase 2. `config.toml [auth] write_operators` allowlist + signed token verification in `ingest_event` and `update_graph_weight`. See `backend/api/SESSION_LOG.md` MOD-004.
-11. **[MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: value-proximity weighting; Phase 3: embedding ANN. See `backend/api/SESSION_LOG.md` MOD-003 for update checklist.
+4. **Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`. Module location: `android/source-camerax/`. Implement `CaptureSource` against CameraX; compute frame diff as mean absolute pixel delta; expose as `Flow<VideoFrame>`.
+5. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
+6. **[MCP-MOD-001] `SqliteCorpusBackend`** — Trigger: `corpus_depth > ~500` OR `list_failure_modes` latency > 200 ms. New file `backend/api/arcshield/corpus/backends/sqlite_backend.py`. Use `aiosqlite`; indexed columns: `failure_mode_tag`, `escalation_state`, `graph_weight`, `operator_id`. Add `"sqlite"` to the `params` fixture in `tests/test_corpus_backend_contract.py` — all 28 contract tests run automatically. Factory entry: `get_backend("sqlite", ...)` in `backends/__init__.py`. Config switch: `config.toml [backend] type = "sqlite"`.
+7. **[MCP-MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: after `escalation_state` index pre-filter, compute per-instrument normalized distance `1 / (1 + |query_val − stored_val|)` instead of coverage-only score. Update the `IMPLEMENTATION NOTE` marker in `server.py` and the abstract method docstring in `backend.py`. Phase 3: replace with embedding ANN (HNSW) once corpus exceeds ~200 events per `failure_mode_tag`.
+8. **[MCP-MOD-004] Per-operator write auth** — Phase 2. Add `[auth] write_operators = [...]` to `config.toml`. In `server.py` `ingest_event` and `update_graph_weight`, verify `event.operator_id` / `updated_by` against the allowlist; reject with `_error(..., "AUTH_FAILED", ...)`. Token passed as tool argument; upgrade to MCP header when header support lands.
+9. **[MCP-MOD-007] `get_divergent_chains` stub** — Add as 8th MCP tool in `server.py` returning `NOT_AVAILABLE` when `GraphCorpusBackend` is absent. `CorpusBackend.get_divergent_chains()` already has a `NotImplementedError` default. Exposes the divergence-point surface (whitepaper §3.4) to agents early.
 
 When pulling an item from this list into §1, copy its text verbatim and assign a W-### ID.
 
@@ -98,8 +98,8 @@ Last 10 items max. Anything older lives in version control.
 | Date | ID | Item | Notes |
 |---|---|---|---|
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
-| 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json` (project-level); MOD-002 path resolution fix in `load_config()` | Server invocable from any CWD |
-| 2026-05-24 | — | MCP server (Session 001) — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), contract test suite (28/28 passing) | Built in prior session; unpacked from zip into `backend/api/` |
+| 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json`; `corpus_dir` resolved relative to `config.toml` (not CWD) | Server invocable from any working directory |
+| 2026-05-24 | — | MCP server Session 001 — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), 28/28 contract tests | Built prior to this repo; unpacked from `tools/arcshield-mcp-v1.zip` |
 | 2026-05-25 | W-004 | `LlrBaselineBuilder` — `buildBaseline()` suspend function + `SpectralAccumulator` (Welford per-bin FFT mean/variance) + `computeRmssdStats()` (20-beat sub-window RMSSD variance) + Welford online accel-RMS stats; injectable clock for JVM testability; 13 unit tests with `runTest` + finite flows | Timeout-based collection works for both production (infinite sensor flows cancel at durationMs) and tests (finite flows complete naturally) |
 | 2026-05-25 | W-003 | `core-llr` Λ_bio — `RollingBioStats` (rolling HR mean/variance + RMSSD), activity gate (resting/light/moderate/vigorous), HR-delta GLR + RMSSD-deviation GLR wired into `llrGate()`; 10 unit tests; `activityGate` field added to `CandidateWindow`; bio fields added to `LlrBaseline`; `hrSamples`/`rrSamples` optional params on `llrGate()` | Nonlinear HRV (SD1/SD2, sample entropy) stubbed as `lambdaHrvNl = 0f` — Phase 2 after H10 ECG path live |
 | 2026-05-24 | W-002 | `core-llr` Λ_env gate — `RealFft` (Cooley-Tukey), `KlDivergence`, `RollingAccelRms` (Welford), `LlrBaseline`, `LlrConfig`, `CandidateWindow`, `llrGate()` in shadow mode; 3 unit test classes | Λ_motion + Λ_gaze = 0.0 stubs; Λ_bio = 0.0 placeholder wired for next item |
@@ -248,6 +248,65 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Existing 3 test classes unaffected (no CandidateWindow or LlrBaseline construction in those tests).
   - Next session pickup point: implement LlrBaselineBuilder (90-second I-frame accumulator for all channels), then wire source-camerax (Λ_motion stub → live).
 ```
+
+---
+
+## 10. Backend / MCP Server State (backend/api/)
+
+Single-source summary of the Python backend and MCP corpus server. Full implementation specs for deferred MOD items are in `backend/api/SESSION_LOG.md` — read that file when actually implementing a MOD item, not just triaging.
+
+### Current build state (as of 2026-05-24)
+
+| File | Status | Notes |
+|---|---|---|
+| `arcshield/schema.py` | ✅ built | Full CIAER+ Pydantic v2 models |
+| `arcshield/corpus/backend.py` | ✅ built | Abstract `CorpusBackend` — 3-phase upgrade path |
+| `arcshield/corpus/backends/json_backend.py` | ✅ built | Phase 1 flat-file backend |
+| `arcshield/corpus/backends/__init__.py` | ✅ built | `get_backend()` factory — one-line config swap |
+| `server.py` | ✅ built | FastMCP stdio server, lifespan-managed, `config.toml` loading |
+| `config.toml` | ✅ built | `facility_id`, backend type, `allow_writes` |
+| `tests/test_corpus_backend_contract.py` | ✅ 28/28 passing | Parameterized contract suite; new backends auto-tested by adding to fixture |
+
+**Run tests:** `cd backend/api && python -m pytest tests/ -v --asyncio-mode=auto`
+
+### 7 MCP tools (server.py)
+
+| Tool | Purpose |
+|---|---|
+| `list_failure_modes` | All failure mode tags with event counts |
+| `query_by_failure_mode` | Events matching a tag, ordered by graph_weight |
+| `query_by_cause_signature` | Sensor-signature similarity search (Phase 1: instrument-coverage score) |
+| `get_event` | Full CIAER+ record by event_id |
+| `get_shadow_actions` | Rejected alternatives for an event |
+| `ingest_event` | Write a new CIAER+ event (requires `allow_writes = true`) |
+| `update_graph_weight` | Adjust graph_weight with audit trail |
+
+### Corpus state
+
+| Field | Value |
+|---|---|
+| Depth | 1 event |
+| Seed event | `6ab2942f` — April 8, 2026 PIE demo — `material_segregation_funnel_flow` |
+| graph_weight | 0.88 |
+| SRK level | KNOWLEDGE |
+| Shadow actions | 2 |
+| corpus/events/ | Committed to git (intentional — prior art provenance on the seed) |
+
+**Open question:** should `corpus/events/` be gitignored for live line captures while keeping the seed event tracked? Decide before first on-line capture session.
+
+### Deferred MOD items (Phase 2–3)
+
+Phase 2 items are wired when corpus reaches scale. Phase 3 items require `GraphCorpusBackend`.
+
+| ID | Phase | Trigger | Summary |
+|---|---|---|---|
+| MCP-MOD-001 | 2 | corpus_depth > ~500 OR latency > 200ms | `SqliteCorpusBackend` — see §3 item 6 |
+| MCP-MOD-003 | 2→3 | Phase 2 | `query_by_cause_signature` value-proximity scoring — see §3 item 7 |
+| MCP-MOD-004 | 2 | Phase 2 | Per-operator write auth — see §3 item 8 |
+| MCP-MOD-006 | 3 | Phase 3 | `graph_weight` counterfactual policy — Leiden re-detection on high-centrality weight changes > 0.2. Threshold needs real corpus data to calibrate — see §6 open decisions. |
+| MCP-MOD-007 | 3 | Phase 3 | `get_divergent_chains` 8th MCP tool stub — see §3 item 9 |
+| MCP-MOD-002 | 3 | corpus_depth > ~5000 OR multi-facility | `GraphCorpusBackend` (Neo4j) — native Cypher, HNSW ANN, CIAER-QL. Full spec in `SESSION_LOG.md`. |
+| MCP-MOD-008 | 3 | Phase 3 | Android → MCP ingest bridge — `McpCorpusSink.kt` in Android app (cross-repo, not in this repo) |
 
 ---
 
