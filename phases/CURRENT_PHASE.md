@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — core-llr: Λ_bio wired (HR delta GLR + RMSSD GLR + activity gate); RollingBioStats; 10 new unit tests |
+| **Last working session** | 2026-05-25 — Claude Code — core-llr: LlrBaselineBuilder (90-second I-frame accumulator, all channels, 13 unit tests) |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -100,6 +100,7 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json` (project-level); MOD-002 path resolution fix in `load_config()` | Server invocable from any CWD |
 | 2026-05-24 | — | MCP server (Session 001) — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), contract test suite (28/28 passing) | Built in prior session; unpacked from zip into `backend/api/` |
+| 2026-05-25 | W-004 | `LlrBaselineBuilder` — `buildBaseline()` suspend function + `SpectralAccumulator` (Welford per-bin FFT mean/variance) + `computeRmssdStats()` (20-beat sub-window RMSSD variance) + Welford online accel-RMS stats; injectable clock for JVM testability; 13 unit tests with `runTest` + finite flows | Timeout-based collection works for both production (infinite sensor flows cancel at durationMs) and tests (finite flows complete naturally) |
 | 2026-05-25 | W-003 | `core-llr` Λ_bio — `RollingBioStats` (rolling HR mean/variance + RMSSD), activity gate (resting/light/moderate/vigorous), HR-delta GLR + RMSSD-deviation GLR wired into `llrGate()`; 10 unit tests; `activityGate` field added to `CandidateWindow`; bio fields added to `LlrBaseline`; `hrSamples`/`rrSamples` optional params on `llrGate()` | Nonlinear HRV (SD1/SD2, sample entropy) stubbed as `lambdaHrvNl = 0f` — Phase 2 after H10 ECG path live |
 | 2026-05-24 | W-002 | `core-llr` Λ_env gate — `RealFft` (Cooley-Tukey), `KlDivergence`, `RollingAccelRms` (Welford), `LlrBaseline`, `LlrConfig`, `CandidateWindow`, `llrGate()` in shadow mode; 3 unit test classes | Λ_motion + Λ_gaze = 0.0 stubs; Λ_bio = 0.0 placeholder wired for next item |
 | 2026-05-24 | W-001 | `source-polar` Kotlin module scaffolded — `BiometricSource` interface + sample types in `core-schema`, `PolarBleBiometricSource` + `PolarDeviceType` in `source-polar`, full Gradle infra (settings, version catalog, wrapper) | Clock anchoring, gap emission, reconnect backoff, H10 offline recording stub all implemented |
@@ -223,6 +224,17 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - 3 unit test classes (12 tests): RealFftTest, KlDivergenceTest, RollingStatsTest.
   - Added junit + kotlinx-coroutines-test to libs.versions.toml.
   - Next session pickup point: wire Λ_bio (HR delta + HRV-RMSSD) in core-llr.
+```
+
+```
+2026-05-25 — Claude Code — LlrBaselineBuilder
+  - Created LlrBaselineBuilder.kt: buildBaseline() suspend function collects all sensor flows concurrently for durationMs (default 90s) using withTimeoutOrNull + coroutineScope.
+  - SpectralAccumulator: Welford per-bin online mean and variance for acoustic power spectra. Falls back to uniform distribution when no frames received.
+  - computeRmssdStats(): overall RMSSD from full RR sequence + sub-window variance from 20-beat windows (stride 10). Gives ~10 variance estimates from a 90s I-frame at typical resting HR.
+  - Welford online accumulator for accel RMS time series (mean + variance of rolling-RMS values, not raw samples).
+  - Injectable clock: `clock: () -> Long = { SystemClock.elapsedRealtimeNanos() }` — avoids Android stubs in JVM tests without polluting public API.
+  - 13 unit tests in LlrBaselineBuilderTest using runTest + finite flows (no virtual time advancement needed).
+  - Next session pickup point: scaffold source-camerax module (CaptureSource implementation) and wire Λ_motion (frame-to-frame video energy) in LlrGate.
 ```
 
 ```
