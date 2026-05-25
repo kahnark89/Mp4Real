@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-010: llm-claude — ClaudeVisionClient + parseGaugeValue + MockWebServer tests; okhttp added to version catalog |
+| **Last working session** | 2026-05-25 — Claude Code — W-011: :app module — Compose entry point + Hilt DI; SessionViewModel; MainScreen + nav to LabelerScreen |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -31,7 +31,6 @@ Things being worked on right now. Move items here from §3 (Backlog) when starti
 
 | ID | Item | Module(s) | Started | Owner | State |
 |---|---|---|---|---|---|
-| | | | | | |
 
 ### Per-item working notes
 
@@ -65,7 +64,7 @@ _None observed yet._
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
 1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement.
-2. **Scaffold `:app` module** — Compose entry point + Hilt DI wiring all sources → core-capture → core-codec. Wire `CaptureSession.candidateWindows` flow into `LabelerScreen` as debug overlay. Shadow-mode-labeler needs to be reachable from the main screen.
+2. ~~**Scaffold `:app` module** — Compose entry point + Hilt DI wiring all sources → core-capture → core-codec. Wire `CaptureSession.candidateWindows` flow into `LabelerScreen` as debug overlay. Shadow-mode-labeler needs to be reachable from the main screen.~~ **DONE 2026-05-25** — see §5.
 3. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
 5. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
@@ -98,6 +97,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-25 | W-011 | `:app` module scaffold — Hilt DI (KSP 2.0.21-1.0.27, Hilt 2.51.1, hilt-navigation-compose, navigation-compose); `ArcShieldApp` (@HiltAndroidApp); `AppModule` wires `PolarBleApi` → `BiometricSource`, `LlmClient` → `ClaudeVisionClient`, `PlcTelemetrySource` → `VisionTelemetrySource`, `@ApplicationScope` CoroutineScope; `SessionViewModel` (@HiltViewModel) manages `CaptureSession` lifecycle, writes candidate windows to `shadow_mode/*.ndjson`; `MainScreen` (status card, start/stop, nav to labeler, live candidate feed overlay); `MainActivity` (@AndroidEntryPoint, permission launcher, NavHost main↔labeler); all secrets via local.properties → BuildConfig | LabelerScreen wired via NavHost — system back returns to MainScreen; shadow_mode/ dir used so LabelerViewModel finds logs automatically |
 | 2026-05-25 | W-010 | `llm-claude` module — `ClaudeVisionClient` implementing `LlmClient`; `VideoFrameEncoder` (NV21→JPEG→Base64); `parseGaugeValue()` regex extraction handles bare numbers, unit suffixes, tilde prefixes, negatives; `buildRequestJson()` constructs image+text content blocks; OkHttp 4.12 + MockWebServer tests; 12 unit tests | API key injected at DI layer — never committed; Haiku default for cost/latency; generateGuidance() is Phase 3 stub |
 | 2026-05-25 | W-009 | `core-capture` module — `ChannelRingBuffer<T>` (generic ring buffer, thread-safe via RWLock, capacity eviction); `WindowExtractor` (extracts 5-track window from rings); `EpsSyncCoordinator` (NTP-style sync schedule, injectable clock); `VideoEncoderDelegate` + `AudioEncoderDelegate` interfaces; `MediaCodecVideoEncoder` + `MediaCodecAudioEncoder` (async callback, CSD via Deferred<ByteArray>); `CaptureSession` (full I-frame → baseline build → muxer init → live gate orchestration); 20 JVM unit tests (8 ring buffer, 5 window extractor, 7 eps sync) | CaptureSession.start() suspends for iFrameDurationMs, builds LlrBaseline, awaits CSD, writes I-frame, then launches gate; PTS = absoluteNanos − sessionStartNanos |
 | 2026-05-25 | W-008 | `source-vision-telemetry` module — `VisionTelemetrySource` implementing `PlcTelemetrySource` via LLM optical gauge reading; `HollowellChannelPresets` (motor_rpm, screw_rpm, melt_temp_f, line_speed_fpm); `PlcTelemetrySource` + `LlmClient` interfaces added to `core-schema`; 11 unit tests (routing, gearbox transform, LLM parse failure, snapshotAt) | Unblocks R_phys extraction without PLC API; screw_rpm = motor_rpm ÷ 20.0 transform enforced at data level |
@@ -329,6 +329,19 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Next session pickup point: scaffold :app module + Hilt DI, wire CaptureSession end-to-end, OR implement ClaudeVisionClient in llm-claude to make VisionTelemetrySource functional.
 ```
 
+```
+2026-05-25 — Claude Code — W-011: :app module scaffold
+  - Added ksp 2.0.21-1.0.27, hilt 2.51.1, hilt-navigation-compose 1.2.0, navigation-compose 2.8.0 to libs.versions.toml.
+  - Added ksp + hilt-android-plugin to root build.gradle.kts plugins (apply false).
+  - Created android/app/ module: build.gradle.kts (AGP application, Hilt, Compose, all module deps), AndroidManifest (CAMERA + RECORD_AUDIO + BLE + INTERNET), themes.xml, strings.xml.
+  - ArcShieldApp: @HiltAndroidApp Application subclass.
+  - AppModule (@InstallIn(SingletonComponent)): @ApplicationScope CoroutineScope, PolarBleApi (PolarBleApiDefaultImpl with FEATURE_HR + FEATURE_POLAR_SENSOR_STREAMING + FEATURE_BATTERY_INFO + FEATURE_DEVICE_INFO), BiometricSource → PolarBleBiometricSource (H10), LlmClient → ClaudeVisionClient (CLAUDE_API_KEY from BuildConfig), PlcTelemetrySource → VisionTelemetrySource (HollowellChannelPresets.ppvcLine1). POLAR_DEVICE_ID from local.properties.
+  - SessionViewModel (@HiltViewModel): injects BiometricSource + PlcTelemetrySource + ApplicationContext. Creates CaptureSession lazily on startSession(lifecycleOwner). Writes candidate windows to shadow_mode/*.ndjson (same dir that LabelerViewModel.listShiftLogs() scans). SessionState sealed class: Idle / Building / Recording / Finished / Error.
+  - MainScreen: status card (color-coded by SessionState), Start/Stop button, "Open Labeler" OutlinedButton, live candidate feed card when Recording + candidateCount > 0.
+  - MainActivity (@AndroidEntryPoint): permission launcher (CAMERA, RECORD_AUDIO, BLUETOOTH, BLUETOOTH_SCAN, BLUETOOTH_CONNECT), NavHost routes "main" → MainScreen + "labeler" → LabelerScreen, shared SessionViewModel across routes.
+  - Secrets in local.properties (gitignored): CLAUDE_API_KEY, POLAR_DEVICE_ID. Never committed.
+  - Next session pickup point: device test — install APK, verify permission grant flow, Polar H10 connection, I-frame baseline, first candidate window in labeler.
+```
 ```
 2026-05-25 — Claude Code — W-010: llm-claude — ClaudeVisionClient
   - Added okhttp 4.12.0 + okhttp-mockwebserver to libs.versions.toml.
