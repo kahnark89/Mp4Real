@@ -1,0 +1,3 @@
+<manifest package="com.capsconc.arcshield.llm.claude">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

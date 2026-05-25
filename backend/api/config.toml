@@ -1,0 +1,33 @@
+# arcshield-mcp/config.toml
+# ============================================================
+# ArcShield MCP Server Configuration
+# ============================================================
+# To swap storage backends: change backend_type and update the
+# corresponding [backend.*] section. No other files change.
+
+[server]
+name        = "arcshield-mcp"
+facility_id = "HOLLOWELL_PPVC1"
+allow_writes = true   # set false on read-only remote deployments
+
+[backend]
+# Phase 1: flat JSON files. Switch to "sqlite" or "neo4j" when ready.
+# get_backend() in arcshield/corpus/backends/__init__.py handles routing.
+type = "json"
+
+[backend.json]
+corpus_dir = "./corpus"
+
+# [backend.sqlite]           # Phase 2 — uncomment when SqliteCorpusBackend exists
+# db_path = "./corpus.db"
+
+# [backend.neo4j]            # Phase 3 — uncomment when GraphCorpusBackend exists
+# uri      = "bolt://localhost:7687"
+# username = "neo4j"
+# password = "REPLACE_ME"
+
+[auth]
+# Future: operator_id allowlist for write tool authorization.
+# Phase 1: write access is controlled only by allow_writes above.
+# Phase 2: per-operator signed tokens required for ingest_event and update_graph_weight.
+# write_operators = ["op_hash_abc123", "op_hash_def456"]
