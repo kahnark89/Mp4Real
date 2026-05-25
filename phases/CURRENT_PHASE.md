@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-009: core-capture module (ChannelRingBuffer + WindowExtractor + EpsSyncCoordinator + CaptureSession; MediaCodecVideoEncoder/AudioEncoder; 20 unit tests) |
+| **Last working session** | 2026-05-25 — Claude Code — W-010: llm-claude — ClaudeVisionClient + parseGaugeValue + MockWebServer tests; okhttp added to version catalog |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -66,7 +66,6 @@ Ordered by intended pickup, not by priority alone. Top of list is next.
 
 1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement.
 2. **Scaffold `:app` module** — Compose entry point + Hilt DI wiring all sources → core-capture → core-codec. Wire `CaptureSession.candidateWindows` flow into `LabelerScreen` as debug overlay. Shadow-mode-labeler needs to be reachable from the main screen.
-3. **Implement `LlmClient` in `llm-claude`** — `ClaudeVisionClient` implementing `LlmClient` using the Anthropic SDK. Required to make `VisionTelemetrySource.readSample()` functional end-to-end (parse RPM gauge values from frames). Wire into `:app` DI.
 3. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
 5. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
@@ -99,6 +98,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-25 | W-010 | `llm-claude` module — `ClaudeVisionClient` implementing `LlmClient`; `VideoFrameEncoder` (NV21→JPEG→Base64); `parseGaugeValue()` regex extraction handles bare numbers, unit suffixes, tilde prefixes, negatives; `buildRequestJson()` constructs image+text content blocks; OkHttp 4.12 + MockWebServer tests; 12 unit tests | API key injected at DI layer — never committed; Haiku default for cost/latency; generateGuidance() is Phase 3 stub |
 | 2026-05-25 | W-009 | `core-capture` module — `ChannelRingBuffer<T>` (generic ring buffer, thread-safe via RWLock, capacity eviction); `WindowExtractor` (extracts 5-track window from rings); `EpsSyncCoordinator` (NTP-style sync schedule, injectable clock); `VideoEncoderDelegate` + `AudioEncoderDelegate` interfaces; `MediaCodecVideoEncoder` + `MediaCodecAudioEncoder` (async callback, CSD via Deferred<ByteArray>); `CaptureSession` (full I-frame → baseline build → muxer init → live gate orchestration); 20 JVM unit tests (8 ring buffer, 5 window extractor, 7 eps sync) | CaptureSession.start() suspends for iFrameDurationMs, builds LlrBaseline, awaits CSD, writes I-frame, then launches gate; PTS = absoluteNanos − sessionStartNanos |
 | 2026-05-25 | W-008 | `source-vision-telemetry` module — `VisionTelemetrySource` implementing `PlcTelemetrySource` via LLM optical gauge reading; `HollowellChannelPresets` (motor_rpm, screw_rpm, melt_temp_f, line_speed_fpm); `PlcTelemetrySource` + `LlmClient` interfaces added to `core-schema`; 11 unit tests (routing, gearbox transform, LLM parse failure, snapshotAt) | Unblocks R_phys extraction without PLC API; screw_rpm = motor_rpm ÷ 20.0 transform enforced at data level |
 | 2026-05-25 | W-007 | `core-codec` module — `Mp4RealMuxer` interface, `AndroidMp4RealMuxer`, `Mp4RealWriter`, `EpsSyncMeasure`, `SessionMetadata` + sidecar writer; 23 JVM unit tests | Standard MPEG-4 container (fMP4 streaming upgrade is Phase 2); metadata tracks use text/vtt API 26+ safe |
@@ -327,6 +327,20 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - 8 ChannelRingBufferTest + 5 WindowExtractorTest + 7 EpsSyncCoordinatorTest = 20 JVM unit tests.
   - Phase 1 acceptance: core-capture ✅ core-codec ✅ core-llr ✅. Remaining: device tests (ε_sync, shadow-mode 20–30 windows), source-polar bench test, :app wiring.
   - Next session pickup point: scaffold :app module + Hilt DI, wire CaptureSession end-to-end, OR implement ClaudeVisionClient in llm-claude to make VisionTelemetrySource functional.
+```
+
+```
+2026-05-25 — Claude Code — W-010: llm-claude — ClaudeVisionClient
+  - Added okhttp 4.12.0 + okhttp-mockwebserver to libs.versions.toml.
+  - Created android/llm-claude/ module (was empty stub).
+  - VideoFrameEncoder: NV21 YuvImage → compressToJpeg(quality=85) → Base64.NO_WRAP. Kept internal; only ClaudeVisionClient uses it.
+  - ClaudeVisionClient: implements LlmClient. Constructor accepts apiKey, model (default claude-haiku-4-5-20251001), maxTokens, httpClient (injectable for tests). elicit() → buildRequestJson() + post() + extractTextContent() + parseGaugeValue(). generateGuidance() returns Phase 3 stub.
+  - buildRequestJson(): builds Anthropic Messages API JSON; image block only present when SensoryContext.frame != null; uses kotlinx.serialization buildJsonObject/buildJsonArray DSL.
+  - post(): OkHttpClient.execute() on Dispatchers.IO; throws IOException on non-2xx; sets x-api-key, anthropic-version headers.
+  - parseGaugeValue(): fast path toDoubleOrNull(), then Regex(-?\d+(?:\.\d+)?) for embedded numbers; returns null on unreadable/NA/blank.
+  - 12 unit tests: 10 parseGaugeValue cases + JSON parse verification + buildRequestJson no-frame case (no image block). MockWebServer declared for future HTTP integration tests.
+  - API key never in source — must be injected via BuildConfig or local config in :app module.
+  - Next session pickup point: scaffold :app module + Hilt DI wiring all sources together.
 ```
 
 ---
