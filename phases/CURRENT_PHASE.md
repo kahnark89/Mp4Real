@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-008: source-vision-telemetry module (VisionTelemetrySource + HollowellChannelPresets; PlcTelemetrySource + LlmClient interfaces in core-schema; 11 unit tests) |
+| **Last working session** | 2026-05-25 — Claude Code — W-009: core-capture module (ChannelRingBuffer + WindowExtractor + EpsSyncCoordinator + CaptureSession; MediaCodecVideoEncoder/AudioEncoder; 20 unit tests) |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -43,12 +43,12 @@ _(No active items. Pull from §3 when starting.)_
 
 From CLAUDE.md §11. Do not advance phases until every criterion is checked.
 
-- [ ] `core-capture`, `core-codec`, `core-llr` modules functional  ← core-llr ✅ core-codec ✅ core-capture pending
+- [x] `core-capture`, `core-codec`, `core-llr` modules functional  ← core-llr ✅ core-codec ✅ core-capture ✅
 - [ ] `source-polar` (H10) consuming PMD streams
 - [x] `source-camerax` POV video
 - [ ] Phone-side mux pipeline writing fMP4 with all five Phase 1 tracks (POV, acoustic, vibration, biometric, voice)
 - [ ] LLR gate operates in shadow mode (logs candidates, never persists a container)
-- [ ] ε_sync measured and logged per session  ← EpsSyncMeasure + sidecar writer built; wired in core-capture (pending)
+- [ ] ε_sync measured and logged per session  ← EpsSyncMeasure + sidecar writer ✅; EpsSyncCoordinator ✅; end-to-end requires device test
 - [ ] ε_sync sustained ≤ 100 ms across at least 5 production shifts
 - [ ] 20–30 candidate windows logged
 - [x] Hand-labeling tool (`tools/shadow-mode-labeler`) operational
@@ -64,8 +64,9 @@ _None observed yet._
 
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
-1. **[W-009] Build `core-capture`** — Ring buffer (circular, all channels), MediaCodec H.265/AAC encoding, mux pipeline connecting LLR gate fire → Mp4RealWriter, ε_sync NTP-style handshake with Polar, CaptureSession lifecycle. Critical path item for Phase 1 acceptance.
-2. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
+1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement.
+2. **Scaffold `:app` module** — Compose entry point + Hilt DI wiring all sources → core-capture → core-codec. Wire `CaptureSession.candidateWindows` flow into `LabelerScreen` as debug overlay. Shadow-mode-labeler needs to be reachable from the main screen.
+3. **Implement `LlmClient` in `llm-claude`** — `ClaudeVisionClient` implementing `LlmClient` using the Anthropic SDK. Required to make `VisionTelemetrySource.readSample()` functional end-to-end (parse RPM gauge values from frames). Wire into `:app` DI.
 3. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
 5. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
@@ -98,6 +99,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-25 | W-009 | `core-capture` module — `ChannelRingBuffer<T>` (generic ring buffer, thread-safe via RWLock, capacity eviction); `WindowExtractor` (extracts 5-track window from rings); `EpsSyncCoordinator` (NTP-style sync schedule, injectable clock); `VideoEncoderDelegate` + `AudioEncoderDelegate` interfaces; `MediaCodecVideoEncoder` + `MediaCodecAudioEncoder` (async callback, CSD via Deferred<ByteArray>); `CaptureSession` (full I-frame → baseline build → muxer init → live gate orchestration); 20 JVM unit tests (8 ring buffer, 5 window extractor, 7 eps sync) | CaptureSession.start() suspends for iFrameDurationMs, builds LlrBaseline, awaits CSD, writes I-frame, then launches gate; PTS = absoluteNanos − sessionStartNanos |
 | 2026-05-25 | W-008 | `source-vision-telemetry` module — `VisionTelemetrySource` implementing `PlcTelemetrySource` via LLM optical gauge reading; `HollowellChannelPresets` (motor_rpm, screw_rpm, melt_temp_f, line_speed_fpm); `PlcTelemetrySource` + `LlmClient` interfaces added to `core-schema`; 11 unit tests (routing, gearbox transform, LLM parse failure, snapshotAt) | Unblocks R_phys extraction without PLC API; screw_rpm = motor_rpm ÷ 20.0 transform enforced at data level |
 | 2026-05-25 | W-007 | `core-codec` module — `Mp4RealMuxer` interface, `AndroidMp4RealMuxer`, `Mp4RealWriter`, `EpsSyncMeasure`, `SessionMetadata` + sidecar writer; 23 JVM unit tests | Standard MPEG-4 container (fMP4 streaming upgrade is Phase 2); metadata tracks use text/vtt API 26+ safe |
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
@@ -308,6 +310,23 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Run: ./gradlew :source-vision-telemetry:test on a machine with Android SDK.
   - docs/BRAINSTORM_HANDOFF.md committed.
   - Next session pickup point: build core-capture (W-009) — ring buffer + MediaCodec H.265/AAC encoding + mux pipeline connecting LLR gate fire → Mp4RealWriter.
+```
+
+```
+2026-05-25 — Claude Code — W-009: core-capture module
+  - Created android/core-capture/ module registered in settings.gradle.kts.
+  - CaptureSessionConfig: all tunable params (videoWidth/Height, frameRateFps, bitrates, wPreMs, wPostMs, iFrameDurationMs, ringBufferCapacityMs, metaTracks). ringCapacityNanos / wPreNanos / wPostNanos as computed properties.
+  - ChannelRingBuffer<T>: generic ring buffer with ReentrantReadWriteLock; offer() evicts items older than (newest_ts − capacityNanos); extract(start, end) returns sorted list. Single-sample buffer never evicts itself.
+  - CapturedWindow: data class with five sample lists + isEmpty + sessionStartNanos/windowStart/windowEnd/isIFrame fields.
+  - WindowExtractor: extracts CapturedWindow from 5 ring buffers by calling .extract(start, end). Boundary math: start = fireTime − wPre, end = fireTime + wPost.
+  - EpsSyncCoordinator: recordSyncPoint() → EpsSyncMeasure.measure(); currentSync() → combine(); isSyncDue() uses injectable clock vs syncIntervalMs; reset() clears state.
+  - VideoEncoderDelegate + AudioEncoderDelegate: interfaces exposing Flow<EncodedSample>, Deferred<ByteArray> csd0, start(), suspend encode(), release().
+  - MediaCodecVideoEncoder: HEVC async callback encoder; onInputBufferAvailable feeds from Channel<VideoFrame>; onOutputFormatChanged completes csd0 Deferred; CSD-config packets skipped.
+  - MediaCodecAudioEncoder: AAC async callback encoder; ShortArray → little-endian byte PCM conversion on input; same callback pattern.
+  - CaptureSession: start() suspends for iFrameDurationMs while building LlrBaseline; awaits csd0 from both encoders; adds tracks to Mp4RealWriter; writes I-frame; launches gate coroutine. muxWindow() subtracts sessionStartNanos from all PTS before writing. candidateWindows SharedFlow exposed for shadow-mode labeler. ε_sync periodic resync triggered from HR flow.
+  - 8 ChannelRingBufferTest + 5 WindowExtractorTest + 7 EpsSyncCoordinatorTest = 20 JVM unit tests.
+  - Phase 1 acceptance: core-capture ✅ core-codec ✅ core-llr ✅. Remaining: device tests (ε_sync, shadow-mode 20–30 windows), source-polar bench test, :app wiring.
+  - Next session pickup point: scaffold :app module + Hilt DI, wire CaptureSession end-to-end, OR implement ClaudeVisionClient in llm-claude to make VisionTelemetrySource functional.
 ```
 
 ---

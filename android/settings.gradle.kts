@@ -19,6 +19,7 @@ rootProject.name = "arcshield-android"
 
 include(":app")
 include(":core-capture")
+include(":core-capture")
 include(":core-codec")
 include(":core-llr")
 include(":core-schema")
