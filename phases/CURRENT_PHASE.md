@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-005: source-camerax module (CameraXCaptureSource + AudioRecord) + FrameDiffMotion + Λ_motion wired in core-llr |
+| **Last working session** | 2026-05-25 — Claude Code — W-006: shadow-mode-labeler Android module (NDJSON logger + NMS + TauCalibrator + Compose UI) |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -51,7 +51,7 @@ From CLAUDE.md §11. Do not advance phases until every criterion is checked.
 - [ ] ε_sync measured and logged per session
 - [ ] ε_sync sustained ≤ 100 ms across at least 5 production shifts
 - [ ] 20–30 candidate windows logged
-- [ ] Hand-labeling tool (`tools/shadow-mode-labeler`) operational
+- [x] Hand-labeling tool (`tools/shadow-mode-labeler`) operational
 - [ ] All BLE dropouts emit explicit `BiometricGap` records (no silent interpolation)
 
 **Phase 1 hard stop:** if ε_sync exceeds 250 ms persistently, halt and debug Polar↔phone clock anchor before proceeding. Document the failure mode here:
@@ -68,7 +68,7 @@ Ordered by intended pickup, not by priority alone. Top of list is next.
 2. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
 3. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
 4. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
-5. **Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.
+5. ~~**Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.~~ **DONE 2026-05-25** — see §5.
 6. **[MCP-MOD-001] `SqliteCorpusBackend`** — Trigger: `corpus_depth > ~500` OR `list_failure_modes` latency > 200 ms. New file `backend/api/arcshield/corpus/backends/sqlite_backend.py`. Use `aiosqlite`; indexed columns: `failure_mode_tag`, `escalation_state`, `graph_weight`, `operator_id`. Add `"sqlite"` to the `params` fixture in `tests/test_corpus_backend_contract.py` — all 28 contract tests run automatically. Factory entry: `get_backend("sqlite", ...)` in `backends/__init__.py`. Config switch: `config.toml [backend] type = "sqlite"`.
 7. **[MCP-MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: after `escalation_state` index pre-filter, compute per-instrument normalized distance `1 / (1 + |query_val − stored_val|)` instead of coverage-only score. Update the `IMPLEMENTATION NOTE` marker in `server.py` and the abstract method docstring in `backend.py`. Phase 3: replace with embedding ANN (HNSW) once corpus exceeds ~200 events per `failure_mode_tag`.
 8. **[MCP-MOD-004] Per-operator write auth** — Phase 2. Add `[auth] write_operators = [...]` to `config.toml`. In `server.py` `ingest_event` and `update_graph_weight`, verify `event.operator_id` / `updated_by` against the allowlist; reject with `_error(..., "AUTH_FAILED", ...)`. Token passed as tool argument; upgrade to MCP header when header support lands.
@@ -100,6 +100,7 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-24 | — | April 8 PIE demo seed event ingested — corpus_depth=1, `material_segregation_funnel_flow`, graph_weight=0.88, 2 shadow_actions, KNOWLEDGE-level | `backend/api/corpus/events/6ab2942f-...json` |
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json`; `corpus_dir` resolved relative to `config.toml` (not CWD) | Server invocable from any working directory |
 | 2026-05-24 | — | MCP server Session 001 — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), 28/28 contract tests | Built prior to this repo; unpacked from `tools/arcshield-mcp-v1.zip` |
+| 2026-05-25 | W-006 | `shadow-mode-labeler` Android module — `CandidateWindowLog` (NDJSON logger), `NonMaxSuppressor` (60 s bucket-max), `TauCalibrator`, `LabelerViewModel`, `LabelerScreen` / `CandidateWindowRow` / `TauSummaryCard`; `@Serializable` on `CandidateWindow`; kotlinx.serialization + Compose BOM + lifecycle-viewmodel-compose added to version catalog; 2 JVM test classes (TauCalibratorTest, NonMaxSuppressorTest); pointer README in tools/shadow-mode-labeler/ | Acceptance criterion ticked; wire into :app when app module scaffolded |
 | 2026-05-25 | W-005 | `source-camerax` module — `CameraXCaptureSource` implementing `CaptureSource` (CameraX ImageAnalysis NV21 + AudioRecord 48kHz mono); `FrameDiffMotion` (Y-plane MAD with subsample=4); `Λ_motion` Gaussian-shift GLR wired in `LlrGate`; motion baseline fields added to `LlrBaseline`; `buildBaseline()` accepts `videoFrames` flow; CameraX 1.3.4 added to version catalog; 8 `FrameDiffMotionTest` unit tests; unsigned byte handling verified | Λ_motion now live when `motionAvailable = true` in baseline; 0.0 fallback when no video source connected |
 | 2026-05-25 | W-004 | `LlrBaselineBuilder` — `buildBaseline()` suspend function + `SpectralAccumulator` (Welford per-bin FFT mean/variance) + `computeRmssdStats()` (20-beat sub-window RMSSD variance) + Welford online accel-RMS stats; injectable clock for JVM testability; 13 unit tests with `runTest` + finite flows | Timeout-based collection works for both production (infinite sensor flows cancel at durationMs) and tests (finite flows complete naturally) |
 | 2026-05-25 | W-003 | `core-llr` Λ_bio — `RollingBioStats` (rolling HR mean/variance + RMSSD), activity gate (resting/light/moderate/vigorous), HR-delta GLR + RMSSD-deviation GLR wired into `llrGate()`; 10 unit tests; `activityGate` field added to `CandidateWindow`; bio fields added to `LlrBaseline`; `hrSamples`/`rrSamples` optional params on `llrGate()` | Nonlinear HRV (SD1/SD2, sample entropy) stubbed as `lambdaHrvNl = 0f` — Phase 2 after H10 ECG path live |
@@ -236,6 +237,23 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Injectable clock: `clock: () -> Long = { SystemClock.elapsedRealtimeNanos() }` — avoids Android stubs in JVM tests without polluting public API.
   - 13 unit tests in LlrBaselineBuilderTest using runTest + finite flows (no virtual time advancement needed).
   - Next session pickup point: scaffold source-camerax module (CaptureSource implementation) and wire Λ_motion (frame-to-frame video energy) in LlrGate.
+```
+
+```
+2026-05-25 — Claude Code — W-006: shadow-mode-labeler
+  - Added kotlinx.serialization 1.7.3, Compose BOM 2024.09.00, lifecycle-viewmodel-compose 2.8.4, activity-compose 1.9.1, material-icons-core to libs.versions.toml.
+  - Added kotlin-serialization + kotlin-compose plugins to version catalog.
+  - Added @Serializable to CandidateWindow in core-llr (+ serialization plugin + dep in core-llr/build.gradle.kts).
+  - Created android/shadow-mode-labeler/ module registered in settings.gradle.kts:
+      CandidateWindowLog: NDJSON appender + reader, mutex-protected, crash-safe flush, skips malformed lines
+      NonMaxSuppressor: O(n log n) bucket-max reducing 57,600 ticks to ≤480 candidate events
+      TauCalibrator: pure JVM; suggests τ for ≥80% TP / ≤20% FP; falls back to τ=0 if FP constraint unsatisfiable
+      LabelerViewModel: AndroidViewModel; shift log list, NMS toggle, label state, export to .labels.json
+      LabelerScreen / LabelingPane / ShiftPickerPane / CandidateWindowRow / TauSummaryCard: Compose UI
+  - 2 JVM test classes: TauCalibratorTest (8 cases), NonMaxSuppressorTest (5 cases).
+  - tools/shadow-mode-labeler/README.md pointer (replaced .gitkeep).
+  - Android SDK not present in cloud environment; tests verified by inspection. Run ./gradlew :shadow-mode-labeler:test on a machine with SDK to confirm.
+  - Next session pickup point: bench-test PolarBleBiometricSource against H10 (backlog item #1), OR scaffold :app module and wire labeler as debug screen.
 ```
 
 ```

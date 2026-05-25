@@ -1,5 +1,7 @@
 package com.capsconc.arcshield.llr
 
+import kotlinx.serialization.Serializable
+
 /**
  * A gate evaluation result. In shadow mode every eval tick produces one of these;
  * in production mode only events with [thresholdReached] = true are emitted.
@@ -11,6 +13,7 @@ package com.capsconc.arcshield.llr
  * Component breakdown is included so the labeler can show which channel drove
  * each candidate event — useful for diagnosing false-positive sources.
  */
+@Serializable
 data class CandidateWindow(
     /** elapsedRealtimeNanos at moment of gate evaluation. */
     val detectedAtNanos:  Long,
