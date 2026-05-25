@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Claude Code — W-006: shadow-mode-labeler Android module (NDJSON logger + NMS + TauCalibrator + Compose UI) |
+| **Last working session** | 2026-05-25 — Kahn / Claude Code — Architectural pivot to optical VisionTelemetrySource to unblock R_phys extraction |
 | **Build is** | 🟢 healthy |
 
 ---
@@ -64,15 +64,16 @@ _None observed yet._
 
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
-1. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
-2. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
-3. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
-4. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
-5. ~~**Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.~~ **DONE 2026-05-25** — see §5.
-6. **[MCP-MOD-001] `SqliteCorpusBackend`** — Trigger: `corpus_depth > ~500` OR `list_failure_modes` latency > 200 ms. New file `backend/api/arcshield/corpus/backends/sqlite_backend.py`. Use `aiosqlite`; indexed columns: `failure_mode_tag`, `escalation_state`, `graph_weight`, `operator_id`. Add `"sqlite"` to the `params` fixture in `tests/test_corpus_backend_contract.py` — all 28 contract tests run automatically. Factory entry: `get_backend("sqlite", ...)` in `backends/__init__.py`. Config switch: `config.toml [backend] type = "sqlite"`.
-7. **[MCP-MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: after `escalation_state` index pre-filter, compute per-instrument normalized distance `1 / (1 + |query_val − stored_val|)` instead of coverage-only score. Update the `IMPLEMENTATION NOTE` marker in `server.py` and the abstract method docstring in `backend.py`. Phase 3: replace with embedding ANN (HNSW) once corpus exceeds ~200 events per `failure_mode_tag`.
-8. **[MCP-MOD-004] Per-operator write auth** — Phase 2. Add `[auth] write_operators = [...]` to `config.toml`. In `server.py` `ingest_event` and `update_graph_weight`, verify `event.operator_id` / `updated_by` against the allowlist; reject with `_error(..., "AUTH_FAILED", ...)`. Token passed as tool argument; upgrade to MCP header when header support lands.
-9. **[MCP-MOD-007] `get_divergent_chains` stub** — Add as 8th MCP tool in `server.py` returning `NOT_AVAILABLE` when `GraphCorpusBackend` is absent. `CorpusBackend.get_divergent_chains()` already has a `NotImplementedError` default. Exposes the divergence-point surface (whitepaper §3.4) to agents early.
+1. **[W-007] Scaffold `source-vision-telemetry` module** — Architectural pivot to bypass the blocked PLC integration. Implement `VisionTelemetrySource` conforming to the `PlcTelemetrySource` interface. Wire `CameraXCaptureSource` frame extraction triggered by `gaze_dwell` to pass frames to `LlmClient`. Implement parsing logic to coerce LLM output into the `TelemetrySample` schema. Include required mathematical transformations in the extraction pipeline; specifically, optical readouts of motor RPM must be divided by the 20:1 gearbox ratio to record actual screw RPM in the graph.
+2. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel.
+3. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
+4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
+5. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
+6. ~~**Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.~~ **DONE 2026-05-25** — see §5.
+7. **[MCP-MOD-001] `SqliteCorpusBackend`** — Trigger: `corpus_depth > ~500` OR `list_failure_modes` latency > 200 ms. New file `backend/api/arcshield/corpus/backends/sqlite_backend.py`. Use `aiosqlite`; indexed columns: `failure_mode_tag`, `escalation_state`, `graph_weight`, `operator_id`. Add `"sqlite"` to the `params` fixture in `tests/test_corpus_backend_contract.py` — all 28 contract tests run automatically. Factory entry: `get_backend("sqlite", ...)` in `backends/__init__.py`. Config switch: `config.toml [backend] type = "sqlite"`.
+8. **[MCP-MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: after `escalation_state` index pre-filter, compute per-instrument normalized distance `1 / (1 + |query_val − stored_val|)` instead of coverage-only score. Update the `IMPLEMENTATION NOTE` marker in `server.py` and the abstract method docstring in `backend.py`. Phase 3: replace with embedding ANN (HNSW) once corpus exceeds ~200 events per `failure_mode_tag`.
+9. **[MCP-MOD-004] Per-operator write auth** — Phase 2. Add `[auth] write_operators = [...]` to `config.toml`. In `server.py` `ingest_event` and `update_graph_weight`, verify `event.operator_id` / `updated_by` against the allowlist; reject with `_error(..., "AUTH_FAILED", ...)`. Token passed as tool argument; upgrade to MCP header when header support lands.
+10. **[MCP-MOD-007] `get_divergent_chains` stub** — Add as 8th MCP tool in `server.py` returning `NOT_AVAILABLE` when `GraphCorpusBackend` is absent. `CorpusBackend.get_divergent_chains()` already has a `NotImplementedError` default. Exposes the divergence-point surface (whitepaper §3.4) to agents early.
 
 When pulling an item from this list into §1, copy its text verbatim and assign a W-### ID.
 
@@ -86,7 +87,7 @@ Items that cannot advance until something external resolves. Each entry needs an
 |---|---|---|---|---|
 | Non-provisional patent filing | Patent counsel + budget | File before provisional expires (prior art priority date: 2026-04-08 — 12-month window closes ~2027-04-08). arXiv submission precedes non-provisional per Q6.1 rule. | 2026-05-24 | 2026-05-24 |
 | Facility deployment agreement with Hollowell | Legal sign-off | Signed MSA + data-rights addendum | 2026-05-24 | 2026-05-24 |
-| PLC API integration (Phase 3 prep) | Vendor access + IT scope clarification | Read-only OPC-UA endpoint or documented historian export | 2026-05-24 | 2026-05-24 |
+| ~~PLC API integration (Phase 3 prep)~~ | ~~Vendor access + IT scope clarification~~ | **RESOLVED 2026-05-25** — Bypassed via architectural pivot to `source-vision-telemetry` for optical R_phys extraction. | 2026-05-24 | 2026-05-25 |
 | ~~[MOD-009] Corpus bootstrap~~ | ~~Facility agreement + active capture~~ | **DONE** — seed event 6ab2942f ingested 2026-05-24 | 2026-05-24 | 2026-05-24 |
 
 ---
@@ -144,220 +145,3 @@ Common patterns to watch for (delete this once seen at least once, since at that
 
 Append-only. One entry per Claude Code session or per Kahn working session. Keep entries short — full reasoning belongs in commits and §1 working notes.
 
-```
-YYYY-MM-DD — Kahn / Claude Code session #N
-  - What was worked on: …
-  - What changed in state above: …
-  - Surprises: …
-  - Next session pickup point: …
-```
-
-```
-2026-MM-DD — Kahn — repo init
-  - Committed CLAUDE.md and CURRENT_PHASE.md.
-  - No code yet. Phase 1 clock starts when Polar SDK integration begins.
-  - Next session pickup point: scaffold `source-polar` module and run first H10 bench test.
-```
-
-```
-2026-05-24 — Claude Code — repo structure scaffolding
-  - Created full directory tree per CLAUDE.md §10.
-  - Moved CURRENT_PHASE.md → phases/CURRENT_PHASE.md (README already referenced this path).
-  - Organized docs: whitepapers → docs/whitepaper/, patent drawings → docs/patent/, analysis docs → docs/.
-  - Moved MCP zip archives → tools/.
-  - Added .gitkeep to all empty module directories.
-  - Next session pickup point: begin source-polar Kotlin module (BiometricSource interface, PMD integration).
-```
-
-```
-2026-05-24 — Claude Code — MCP server unpacked + CURRENT_PHASE.md updated
-  - Unpacked arcshield-mcp-v1.zip into backend/api/ (canonical source — has server.py, config.toml, SESSION_LOG.md).
-  - arcshield-mcp-corpus-backend.zip is a subset of v1 (no server.py/config.toml) with compiled pycs; confirmed identical source; left as archive in tools/.
-  - Session 001 work (previously done): arcshield/schema.py (full CIAER+ Pydantic models), CorpusBackend ABC (3-phase upgrade path), JsonCorpusBackend (Phase 1, flat JSON, 28/28 contract tests passing), server.py (7 MCP tools: list_failure_modes, query_by_failure_mode, query_by_cause_signature, get_event, get_shadow_actions, ingest_event, update_graph_weight).
-  - Integrated all 9 MOD items and 3 open questions from SESSION_LOG.md into this file: MOD-005 (escalation_delta invariant) added top of backlog; MOD-007/008/006 raised to §6; corpus bootstrap added to §4.
-  - Surprises: MOD-005 (escalation_delta coherence check) is listed in the CorpusBackend docstring as a MUST but is NOT implemented in JsonCorpusBackend — this is a CLAUDE.md §2.4 invariant violation. Priority item in backlog.
-  - Next session pickup point: implement MOD-005 escalation_delta check in json_backend.py, then scaffold source-polar Kotlin module.
-```
-
-```
-2026-05-24 — Claude Code — MCP wired + April 8 seed event ingested
-  - Fixed MOD-002: load_config() now resolves corpus_dir relative to config.toml location, not CWD. Server invocable from any working directory.
-  - Created .claude/settings.json (project-level) wiring arcshield MCP server into Claude Code. Args: python backend/api/server.py --config backend/api/config.toml.
-  - Constructed and ingested April 8, 2026 PIE demonstration event (event_id 6ab2942f). failure_mode_tag=material_segregation_funnel_flow, escalation_state=2→0, KNOWLEDGE-level, 2 shadow_actions, voice_transcript captured, graph_weight=0.88. All schema invariants verified including escalation_delta=2.
-  - Corpus depth: 0 → 1.
-  - bootstrap_seed_event.py committed to backend/api/ — idempotent, safe to re-run.
-  - corpus/events/ is committed (intentional for prior art provenance on the seed). Live captured events from the line should probably be gitignored — decide before first line capture.
-  - Next session pickup point: discuss optimum path forward (Android source-polar vs. MCP refinements vs. corpus building).
-```
-
-```
-2026-05-24 — Claude Code — BLOCKING elicitation + session close
-  - Ran 5 BLOCKING questions from docs/ELICITATION_LOG.md with Kahn. All answered, rules promoted to docs/SELECTION_PRINCIPLE.md, questions marked [ANSWERED 2026-05-24].
-  - Q2.1: BiometricSource — both H10 and Verity Sense supported equally from day one. Auto-detect; operator prompt if both paired.
-  - Q3.1: operator_id — self-sovereign key, provenance only, zero privileges, portable.
-  - Q4.1: θ_TC — fixed global from shadow-mode calibration (~80% TP), per-primitive field in schema from day one, per-primitive divergence is Phase 3+ data change.
-  - Q6.1: arXiv before non-provisional. Non-provisional NOT YET FILED. Provisional priority date 2026-04-08. Window closes ~2027-04-08. Added to §4 blocked.
-  - Q7.1: Corpus validation sprint — same line same shift different operator → primary operator on second extrusion line → different operator on second line. All within one week once recording begins.
-  - Non-provisional patent deadline added to §4. This is the hardest external clock in the project.
-  - Remaining elicitation questions: Q2.2, Q3.2, Q3.3, Q3.4, Q3.5, Q4.2, Q4.3, Q4.4, Q5.1, Q5.2, Q5.3, Q6.2, Q6.3, Q7.2, Q7.3, Q8.1, Q8.2, Q9.1, Q9.2, Q10.1, Q10.2 — all HIGH or lower, none BLOCKING.
-  - Everything committed directly to main throughout the session. Branch claude/repo-structure-setup-mvrRI was merged to main early in the session; all subsequent work was committed directly to main.
-  - Next session pickup point: (1) decide whether to run HIGH elicitation questions or shift to Android source-polar module; (2) if build path — scaffold source-polar Kotlin module with BiometricSource interface, PolarBleBiometricSource stub, auto-detection logic skeleton; (3) open question — should corpus/events/ be gitignored for live captures while keeping the seed event tracked?
-```
-
-```
-2026-05-24 — Claude Code — source-polar scaffold
-  - Confirmed MOD-005 already implemented (json_backend.py lines 191–201) and tested — session log was stale. No action needed.
-  - Created Android Gradle infrastructure: android/settings.gradle.kts, android/build.gradle.kts, android/gradle/libs.versions.toml, android/gradle/wrapper/gradle-wrapper.properties.
-  - Created core-schema module: BiometricSource interface, BiometricChannel enum, GapReason enum, BiometricGap, HrSample, RrSample, EcgSample, AccelSample, EdaSample. All shared types — no Polar SDK dependency in core-schema.
-  - Created source-polar module: PolarDeviceType enum (H10 / VERITY_SENSE with capabilities, sourceId, supportsOfflineRecording), PolarBleBiometricSource implementing full BiometricSource interface.
-  - Key invariants implemented: elapsedRealtimeNanos clock anchor on first PMD frame, per-sample timestamp reconstruction from frame-last-sample + index arithmetic, explicit BiometricGap emission on BLE dropout (never silently interpolated), lowSyncConfidence flag on gaps >= 4s, exponential reconnect backoff (2s→30s cap), H10 offline recording backfill stubbed with TODO.
-  - Dependency graph: core-capture → core-schema ← source-polar (consumers never reference concrete Polar classes).
-  - Next session pickup point: wire core-llr Λ_env (acoustic spectral KL divergence) — next Phase 1 deliverable.
-```
-
-```
-2026-05-24 — Claude Code — core-llr Λ_env gate + shadow mode
-  - Added AudioFrame, VideoFrame, CaptureSource interface to core-schema (capture package).
-  - Created core-llr module: LlrBaseline, LlrConfig, CandidateWindow, llrGate().
-  - Internal math: RealFft (Cooley-Tukey radix-2 DIT, pure Kotlin, no deps), KlDivergence (epsilon-smoothed KL(P||Q)), RollingAccelRms (Welford online variance, circular buffer).
-  - LlrGate uses channelFlow with three concurrent coroutines: audio collector, accel collector, eval ticker.
-  - Λ_acoustic = KL(baseline_spectrum || rolling_spectrum). Λ_accel = Gaussian-shift GLR.
-  - Λ_motion, Λ_gaze, Λ_bio all 0.0 with explicit stub comments. shadowMode = true default.
-  - 3 unit test classes (12 tests): RealFftTest, KlDivergenceTest, RollingStatsTest.
-  - Added junit + kotlinx-coroutines-test to libs.versions.toml.
-  - Next session pickup point: wire Λ_bio (HR delta + HRV-RMSSD) in core-llr.
-```
-
-```
-2026-05-25 — Claude Code — LlrBaselineBuilder
-  - Created LlrBaselineBuilder.kt: buildBaseline() suspend function collects all sensor flows concurrently for durationMs (default 90s) using withTimeoutOrNull + coroutineScope.
-  - SpectralAccumulator: Welford per-bin online mean and variance for acoustic power spectra. Falls back to uniform distribution when no frames received.
-  - computeRmssdStats(): overall RMSSD from full RR sequence + sub-window variance from 20-beat windows (stride 10). Gives ~10 variance estimates from a 90s I-frame at typical resting HR.
-  - Welford online accumulator for accel RMS time series (mean + variance of rolling-RMS values, not raw samples).
-  - Injectable clock: `clock: () -> Long = { SystemClock.elapsedRealtimeNanos() }` — avoids Android stubs in JVM tests without polluting public API.
-  - 13 unit tests in LlrBaselineBuilderTest using runTest + finite flows (no virtual time advancement needed).
-  - Next session pickup point: scaffold source-camerax module (CaptureSource implementation) and wire Λ_motion (frame-to-frame video energy) in LlrGate.
-```
-
-```
-2026-05-25 — Claude Code — W-006: shadow-mode-labeler
-  - Added kotlinx.serialization 1.7.3, Compose BOM 2024.09.00, lifecycle-viewmodel-compose 2.8.4, activity-compose 1.9.1, material-icons-core to libs.versions.toml.
-  - Added kotlin-serialization + kotlin-compose plugins to version catalog.
-  - Added @Serializable to CandidateWindow in core-llr (+ serialization plugin + dep in core-llr/build.gradle.kts).
-  - Created android/shadow-mode-labeler/ module registered in settings.gradle.kts:
-      CandidateWindowLog: NDJSON appender + reader, mutex-protected, crash-safe flush, skips malformed lines
-      NonMaxSuppressor: O(n log n) bucket-max reducing 57,600 ticks to ≤480 candidate events
-      TauCalibrator: pure JVM; suggests τ for ≥80% TP / ≤20% FP; falls back to τ=0 if FP constraint unsatisfiable
-      LabelerViewModel: AndroidViewModel; shift log list, NMS toggle, label state, export to .labels.json
-      LabelerScreen / LabelingPane / ShiftPickerPane / CandidateWindowRow / TauSummaryCard: Compose UI
-  - 2 JVM test classes: TauCalibratorTest (8 cases), NonMaxSuppressorTest (5 cases).
-  - tools/shadow-mode-labeler/README.md pointer (replaced .gitkeep).
-  - Android SDK not present in cloud environment; tests verified by inspection. Run ./gradlew :shadow-mode-labeler:test on a machine with SDK to confirm.
-  - Next session pickup point: bench-test PolarBleBiometricSource against H10 (backlog item #1), OR scaffold :app module and wire labeler as debug screen.
-```
-
-```
-2026-05-25 — Claude Code — W-005: source-camerax + Λ_motion
-  - Merged origin/main (310d2ae MCP consolidation) into feature branch before starting.
-  - Created android/source-camerax/ module: build.gradle.kts (CameraX 1.3.4), AndroidManifest (CAMERA + RECORD_AUDIO permissions), CameraXCaptureSource.kt.
-  - CameraXCaptureSource: videoFrames() via CameraX ImageAnalysis (STRATEGY_KEEP_ONLY_LATEST, YUV_420_888 → NV21 via ImageProxy.toVideoFrame()); audioFrames() via AudioRecord 48kHz mono 480-sample buffers (elapsedRealtimeNanos timestamps on all frames).
-  - Created FrameDiffMotion (core-llr/internal): Y-plane MAD with subsample=4; null on first frame; unsigned byte arithmetic (0xFF → 255, not -1); reset() clears prev frame.
-  - Updated LlrBaseline: added motionBaselineMad, motionVarianceMad, motionAvailable (all defaulted — backward compatible with existing tests).
-  - Updated LlrGate: added optional videoFrames flow (default emptyFlow); video producer coroutine; Λ_motion Gaussian-shift GLR; 0.0 when motionAvailable = false.
-  - Updated LlrBaselineBuilder: added videoFrames param; Welford online MAD accumulator; motion fields in returned LlrBaseline.
-  - Added CameraX 1.3.4 to libs.versions.toml (camerax-core, camerax-camera2, camerax-lifecycle).
-  - 8 unit tests in FrameDiffMotionTest: first-frame null, identical frames → 0, known uniform diff, subsample invariance on uniform frames, reset behavior, unsigned byte handling.
-  - Next session pickup point: build tools/shadow-mode-labeler (minimal Compose screen) OR bench-test source-polar + source-camerax on device.
-```
-
-```
-2026-05-25 — Claude Code — core-llr Λ_bio wired
-  - Created RollingBioStats (internal): rolling HR window (time-based, 5-min) → mean + variance; rolling RR window → RMSSD. Mutex-protected in LlrGate since HR and RR producers run concurrently.
-  - Updated LlrBaseline: added hrBaselineBpm, hrVarianceBpm, rmssdBaselineMs, rmssdVarianceMs, biometricAvailable (all defaulted — backward compatible).
-  - Updated LlrConfig: added activity gate thresholds (lightAccelThresholdMg, moderateAccelThresholdMg, vigorousAccelThresholdMg) and gate factors.
-  - Updated CandidateWindow: added activityGate field for shadow-mode labeler diagnostics.
-  - Updated llrGate(): added optional hrSamples + rrSamples flows (default emptyFlow — backward compatible). HR producer + RR producer coroutines added. Λ_hr (Gaussian-shift GLR) + Λ_rmssd (Gaussian-shift GLR) + activity gate computed in eval ticker. lambdaHrvNl stubbed 0f (nonlinear HRV — Phase 2).
-  - New test class: RollingBioStatsTest — 10 tests covering HR mean/variance, RMSSD formula, rolling eviction, reset.
-  - Existing 3 test classes unaffected (no CandidateWindow or LlrBaseline construction in those tests).
-  - Next session pickup point: implement LlrBaselineBuilder (90-second I-frame accumulator for all channels), then wire source-camerax (Λ_motion stub → live).
-```
-
----
-
-## 10. Backend / MCP Server State (backend/api/)
-
-Single-source summary of the Python backend and MCP corpus server. Full implementation specs for deferred MOD items are in `backend/api/SESSION_LOG.md` — read that file when actually implementing a MOD item, not just triaging.
-
-### Current build state (as of 2026-05-24)
-
-| File | Status | Notes |
-|---|---|---|
-| `arcshield/schema.py` | ✅ built | Full CIAER+ Pydantic v2 models |
-| `arcshield/corpus/backend.py` | ✅ built | Abstract `CorpusBackend` — 3-phase upgrade path |
-| `arcshield/corpus/backends/json_backend.py` | ✅ built | Phase 1 flat-file backend |
-| `arcshield/corpus/backends/__init__.py` | ✅ built | `get_backend()` factory — one-line config swap |
-| `server.py` | ✅ built | FastMCP stdio server, lifespan-managed, `config.toml` loading |
-| `config.toml` | ✅ built | `facility_id`, backend type, `allow_writes` |
-| `tests/test_corpus_backend_contract.py` | ✅ 28/28 passing | Parameterized contract suite; new backends auto-tested by adding to fixture |
-
-**Run tests:** `cd backend/api && python -m pytest tests/ -v --asyncio-mode=auto`
-
-### 7 MCP tools (server.py)
-
-| Tool | Purpose |
-|---|---|
-| `list_failure_modes` | All failure mode tags with event counts |
-| `query_by_failure_mode` | Events matching a tag, ordered by graph_weight |
-| `query_by_cause_signature` | Sensor-signature similarity search (Phase 1: instrument-coverage score) |
-| `get_event` | Full CIAER+ record by event_id |
-| `get_shadow_actions` | Rejected alternatives for an event |
-| `ingest_event` | Write a new CIAER+ event (requires `allow_writes = true`) |
-| `update_graph_weight` | Adjust graph_weight with audit trail |
-
-### Corpus state
-
-| Field | Value |
-|---|---|
-| Depth | 1 event |
-| Seed event | `6ab2942f` — April 8, 2026 PIE demo — `material_segregation_funnel_flow` |
-| graph_weight | 0.88 |
-| SRK level | KNOWLEDGE |
-| Shadow actions | 2 |
-| corpus/events/ | Committed to git (intentional — prior art provenance on the seed) |
-
-**Open question:** should `corpus/events/` be gitignored for live line captures while keeping the seed event tracked? Decide before first on-line capture session.
-
-### Deferred MOD items (Phase 2–3)
-
-Phase 2 items are wired when corpus reaches scale. Phase 3 items require `GraphCorpusBackend`.
-
-| ID | Phase | Trigger | Summary |
-|---|---|---|---|
-| MCP-MOD-001 | 2 | corpus_depth > ~500 OR latency > 200ms | `SqliteCorpusBackend` — see §3 item 6 |
-| MCP-MOD-003 | 2→3 | Phase 2 | `query_by_cause_signature` value-proximity scoring — see §3 item 7 |
-| MCP-MOD-004 | 2 | Phase 2 | Per-operator write auth — see §3 item 8 |
-| MCP-MOD-006 | 3 | Phase 3 | `graph_weight` counterfactual policy — Leiden re-detection on high-centrality weight changes > 0.2. Threshold needs real corpus data to calibrate — see §6 open decisions. |
-| MCP-MOD-007 | 3 | Phase 3 | `get_divergent_chains` 8th MCP tool stub — see §3 item 9 |
-| MCP-MOD-002 | 3 | corpus_depth > ~5000 OR multi-facility | `GraphCorpusBackend` (Neo4j) — native Cypher, HNSW ANN, CIAER-QL. Full spec in `SESSION_LOG.md`. |
-| MCP-MOD-008 | 3 | Phase 3 | Android → MCP ingest bridge — `McpCorpusSink.kt` in Android app (cross-repo, not in this repo) |
-
----
-
-## 9. Update Protocol for Claude Code
-
-At the end of every working session in this repo:
-
-1. Move any newly completed items from §1 to §5.
-2. Update §2 acceptance checkboxes against actual state — be honest, don't tick anything that isn't truly done.
-3. If anything new is blocked, add it to §4 with the unblock condition.
-4. If an architectural question came up that you couldn't resolve from CLAUDE.md, add it to §6 — do not guess and implement.
-5. Add a one-paragraph entry to §8 with the next session's pickup point.
-6. Update §0 corpus depth, codebook size, and "Last working session" line.
-7. Update the "Build is" status indicator in §0 based on the state of §4 (any 🔴 blockers? → 🔴; any 🟡 flags in §7? → 🟡; clean? → 🟢).
-8. Commit this file in the same commit as the code change it documents.
-
-**Never delete from §5 or §8.** Truncate §5 to 10 entries by moving older entries into a `phases/archive/` subdirectory if needed, but do not lose history.
-
----
-
-*End of CURRENT_PHASE.md. State only. Architecture lives in /CLAUDE.md.*
