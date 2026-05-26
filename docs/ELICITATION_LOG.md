@@ -166,7 +166,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ---
 
-### Q3.3 — `[HIGH]` Threshold for declaring an event "complete"
+### Q3.3 — `[ANSWERED 2026-05-26]` Threshold for declaring an event "complete"
 
 **Context.** An event needs R_phys before its OGC δ can apply. Some R_phys arrivals take hours (lab QC). What happens if R_phys never arrives?
 
@@ -275,7 +275,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §5 — LLM Integration
 
-### Q5.1 — `[HIGH]` LLM choice for PIE elicitation vs Twin guidance
+### Q5.1 — `[ANSWERED 2026-05-26]` LLM choice for PIE elicitation vs Twin guidance
 
 **Context.** `LlmClient` abstracts the provider, but the *use cases* differ. Elicitation is a structured-output task; guidance is a synthesis task.
 
