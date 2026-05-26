@@ -380,6 +380,15 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Next session pickup point: install app-debug.apk on device, grant CAMERA + RECORD_AUDIO, run a shadow session, confirm candidate windows appear in the Labeler and a τ suggestion renders. Optionally add a phone-IMU AccelSource to restore Λ_accel.
 ```
 
+```
+2026-05-26 — Claude Code — test-source compile fixes
+  - Android Studio "Make/Build Project" compiles test sources (assembleDebug does NOT), which surfaced two test compile errors not caught by the APK build:
+    - ClaudeVisionClientTest.kt: missing kotlinx.serialization.json imports (jsonObject / jsonArray / jsonPrimitive).
+    - VisionTelemetrySourceTest.kt: an em-dash (—) in a backtick test-method name produced an unmappable .class file path on charset-strict filesystems. Replaced with an ASCII hyphen.
+  - Verified: all six test-bearing modules' compileDebugUnitTestKotlin pass; :app:assembleDebug still green.
+  - Next session pickup point: unchanged — install the APK and run an on-device shadow session.
+```
+
 ---
 
 ## 10. Backend / MCP Server State (backend/api/)

@@ -98,7 +98,7 @@ class VisionTelemetrySourceTest {
     }
 
     @Test
-    fun `motor_rpm applies identity transform — raw LLM value passed through unchanged`() = runTest {
+    fun `motor_rpm applies identity transform - raw LLM value passed through unchanged`() = runTest {
         val motorRpm = 1000.0
         val source = VisionTelemetrySource(
             makeConfig(HollowellChannelPresets.MOTOR_RPM),
