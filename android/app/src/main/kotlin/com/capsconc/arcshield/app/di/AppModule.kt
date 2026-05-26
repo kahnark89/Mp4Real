@@ -1,15 +1,19 @@
 package com.capsconc.arcshield.app.di
 
+import android.content.Context
 import com.capsconc.arcshield.app.BuildConfig
 import com.capsconc.arcshield.llm.claude.ClaudeVisionClient
 import com.capsconc.arcshield.schema.biometric.BiometricSource
+import com.capsconc.arcshield.schema.imu.AccelSource
 import com.capsconc.arcshield.schema.llm.LlmClient
 import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
+import com.capsconc.arcshield.source.imu.PhoneImuAccelSource
 import com.capsconc.arcshield.vision.HollowellChannelPresets
 import com.capsconc.arcshield.vision.VisionTelemetrySource
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +42,14 @@ object AppModule {
     // app module and bind PolarBleBiometricSource here instead.
     @Provides @Singleton
     fun provideBiometricSource(): BiometricSource = NullBiometricSource()
+
+    // ---- AccelSource ---------------------------------------------------
+    // Phone IMU (SensorManager) drives Λ_accel and the accel track. This is the
+    // Gen 1 vibration source (CLAUDE.md §3.1 track 3); it replaces the Polar
+    // onboard accel that fed accel before the biometric path was decoupled.
+    @Provides @Singleton
+    fun provideAccelSource(@ApplicationContext ctx: Context): AccelSource =
+        PhoneImuAccelSource(ctx)
 
     // ---- LlmClient ----------------------------------------------------
     // ClaudeVisionClient is used by VisionTelemetrySource for optical R_phys

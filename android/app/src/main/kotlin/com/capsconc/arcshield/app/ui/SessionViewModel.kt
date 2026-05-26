@@ -16,6 +16,7 @@ import com.capsconc.arcshield.labeler.CandidateWindowLog
 import com.capsconc.arcshield.llr.CandidateWindow
 import com.capsconc.arcshield.llr.LlrConfig
 import com.capsconc.arcshield.schema.biometric.BiometricSource
+import com.capsconc.arcshield.schema.imu.AccelSource
 import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
 import com.capsconc.arcshield.source.camerax.CameraXCaptureSource
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +37,7 @@ import javax.inject.Inject
 class SessionViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val biometricSource: BiometricSource,
+    private val accelSource: AccelSource,
     @Suppress("UnusedPrivateMember")
     private val plcTelemetrySource: PlcTelemetrySource,
 ) : ViewModel() {
@@ -118,7 +120,10 @@ class SessionViewModel @Inject constructor(
                     ),
                 )
 
-                val session = CaptureSession(config, captureSource, biometricSource, writer)
+                val session = CaptureSession(
+                    config, captureSource, biometricSource, writer,
+                    accelSource = accelSource,
+                )
                 activeSession = session
 
                 // Collect candidate windows → log + count update.

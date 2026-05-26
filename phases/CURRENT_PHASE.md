@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-26 — Claude Code — first clean debug APK build (`:app:assembleDebug` ✅, SDK-34-verified); Polar biometric path decoupled for Λ_env-only |
+| **Last working session** | 2026-05-26 — Claude Code — phone-IMU `AccelSource` added (Λ_env = acoustic + accel + motion); debug APK + all test sources compile (SDK-34-verified) |
 | **Build is** | 🟢 healthy — debug APK assembles |
 
 ---
@@ -100,6 +100,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-26 | W-013 | Phone-IMU `AccelSource` — new `source-imu` module (`PhoneImuAccelSource`: SensorManager TYPE_ACCELEROMETER → mG, elapsedRealtimeNanos, ~100 Hz); `AccelSource` interface in core-schema; `CaptureSession` gains optional `accelSource` param (precedence over `BiometricSource.accelerometer()`); DI provider in `AppModule`; injected in `SessionViewModel`. APK + all test sources compile (SDK-34). | Restores Λ_accel in the Λ_env-only build (acoustic + accel + motion); resolves the §7 accel-absent drift item. No new deps (framework SensorManager). |
 | 2026-05-26 | W-012 | Android build fixed — `:app:assembleDebug` compiles & packages a debug APK (verified against Android SDK 34). Added `gradle.properties` (`android.useAndroidX=true`), generated the Gradle 8.7 wrapper (`gradlew`/`.bat`/jar), cleaned `settings.gradle.kts` (removed duplicate `:core-capture` + 6 stub-module includes), fixed `llm-claude` manifest (`xmlns:android`), `CandidateWindowLog` `FileWriter(append)` (no `bufferedWriter(append=)`), `llm-claude` okhttp `implementation`→`api` (OkHttpClient in `ClaudeVisionClient` ctor), `MainScreen` core icons (PlayArrow/Close + Box dot, no material-icons-extended). **Polar decoupled**: `BiometricSource`→`NullBiometricSource`, `source-polar` dropped from `:app` and settings. | Λ_env-only build runs on acoustic + motion (Λ_accel=0 since accel was Polar-sourced; Λ_bio=0). `source-polar` also had a Polar-SDK-v5 HR API mismatch. Re-add `source-polar` + bind `PolarBleBiometricSource` for H10 capture. |
 | 2026-05-25 | W-011 | `:app` module scaffold — Hilt DI (KSP 2.0.21-1.0.27, Hilt 2.51.1, hilt-navigation-compose, navigation-compose); `ArcShieldApp` (@HiltAndroidApp); `AppModule` wires `PolarBleApi` → `BiometricSource`, `LlmClient` → `ClaudeVisionClient`, `PlcTelemetrySource` → `VisionTelemetrySource`, `@ApplicationScope` CoroutineScope; `SessionViewModel` (@HiltViewModel) manages `CaptureSession` lifecycle, writes candidate windows to `shadow_mode/*.ndjson`; `MainScreen` (status card, start/stop, nav to labeler, live candidate feed overlay); `MainActivity` (@AndroidEntryPoint, permission launcher, NavHost main↔labeler); all secrets via local.properties → BuildConfig | LabelerScreen wired via NavHost — system back returns to MainScreen; shadow_mode/ dir used so LabelerViewModel finds logs automatically |
 | 2026-05-25 | W-010 | `llm-claude` module — `ClaudeVisionClient` implementing `LlmClient`; `VideoFrameEncoder` (NV21→JPEG→Base64); `parseGaugeValue()` regex extraction handles bare numbers, unit suffixes, tilde prefixes, negatives; `buildRequestJson()` constructs image+text content blocks; OkHttp 4.12 + MockWebServer tests; 12 unit tests | API key injected at DI layer — never committed; Haiku default for cost/latency; generateGuidance() is Phase 3 stub |
@@ -133,7 +134,7 @@ Architecture-level questions where Claude Code should **not** decide unilaterall
 Things observed during recent sessions that **could** become problems if they continue. Not yet blocking. Re-evaluate weekly.
 
 - **τ calibration population mixing** — Λ_env-only sessions (no H10) produce a systematically lower Λ distribution than full Λ_env + Λ_bio sessions. Mixing them when fitting τ will skew the threshold. Keep two separate label export files and calibrate τ independently per population until H10 is in continuous use. The TauCalibrator in shadow-mode-labeler operates per-file, so the tooling already supports this — the risk is operator error in combining exports.
-- **Accel absent in the decoupled build (2026-05-26)** — accelerometer samples are sourced from `BiometricSource.accelerometer()` (Polar onboard accel), not a phone IMU. With Polar decoupled to `NullBiometricSource`, Λ_accel = 0, so the current debug APK gates on acoustic + motion only. If Λ_env-only sessions need vibration signal, add a phone-IMU `AccelSource` (SensorManager) feeding the accel flow — standalone module, no consumer changes. This also widens the τ-population gap noted above (acoustic+motion vs. acoustic+accel+motion).
+- **~~Accel absent in the decoupled build~~ (RESOLVED 2026-05-26)** — added `source-imu` / `PhoneImuAccelSource` (SensorManager TYPE_ACCELEROMETER → mG). `CaptureSession` now takes an optional `accelSource` that feeds Λ_accel + the accel track and takes precedence over `BiometricSource.accelerometer()`. Λ_env-only build is back to acoustic + accel + motion. Open follow-up for when Polar/H10 returns: decide whether phone-IMU or Polar onboard accel feeds the activity gate vs. the accel track (they were conflated on one flow).
 
 Common patterns to watch for (delete this once seen at least once, since at that point it's documented above):
 
@@ -387,6 +388,16 @@ YYYY-MM-DD — Kahn / Claude Code session #N
     - VisionTelemetrySourceTest.kt: an em-dash (—) in a backtick test-method name produced an unmappable .class file path on charset-strict filesystems. Replaced with an ASCII hyphen.
   - Verified: all six test-bearing modules' compileDebugUnitTestKotlin pass; :app:assembleDebug still green.
   - Next session pickup point: unchanged — install the APK and run an on-device shadow session.
+```
+
+```
+2026-05-26 — Claude Code — phone-IMU AccelSource (restore Λ_accel)
+  - New module source-imu: PhoneImuAccelSource implements a new AccelSource interface (core-schema) via SensorManager TYPE_ACCELEROMETER, converted to mG, elapsedRealtimeNanos timestamps, ~100 Hz. Cold callbackFlow; unregisters on cancel.
+  - CaptureSession: added optional accelSource param; the accel flow now prefers accelSource over biometricSource.accelerometer(). One change covers the accel ring/track, buildBaseline, and llrGate (all read the same sharedAccel).
+  - DI: AppModule provides AccelSource → PhoneImuAccelSource(ctx); SessionViewModel injects it and passes it to CaptureSession.
+  - Verified: :app:assembleDebug + all six test-bearing modules' compileDebugUnitTestKotlin pass (Android SDK 34).
+  - Effect: Λ_env-only build is now acoustic + accel + motion, matching backlog §3 #1's intended config — warm-corpus sessions will have accel from the first shift.
+  - Next session pickup point: install the APK, run a shadow session, confirm candidate windows + a τ suggestion in the Labeler; begin the 10–15-event Λ_env-only warm corpus.
 ```
 
 ---

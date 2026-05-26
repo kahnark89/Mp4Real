@@ -61,6 +61,7 @@ dependencies {
     implementation(project(":core-schema"))
     implementation(project(":shadow-mode-labeler"))
     implementation(project(":source-camerax"))
+    implementation(project(":source-imu"))
     implementation(project(":source-vision-telemetry"))
     implementation(project(":llm-claude"))
 

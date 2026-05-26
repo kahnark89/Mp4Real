@@ -12,6 +12,7 @@ import com.capsconc.arcshield.llr.buildBaseline
 import com.capsconc.arcshield.llr.llrGate
 import com.capsconc.arcshield.schema.biometric.BiometricSource
 import com.capsconc.arcshield.schema.capture.CaptureSource
+import com.capsconc.arcshield.schema.imu.AccelSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +39,9 @@ class CaptureSession(
     private val captureSource: CaptureSource,
     private val biometricSource: BiometricSource,
     private val writer: Mp4RealWriter,
+    // Phone-IMU accel. When provided it feeds Λ_accel and the accel track;
+    // otherwise accel falls back to the BiometricSource's onboard accelerometer.
+    private val accelSource: AccelSource? = null,
     private val videoEncoder: VideoEncoderDelegate =
         MediaCodecVideoEncoder(config.videoWidth, config.videoHeight, config.frameRateFps,
             config.videoTargetBitrateBps),
@@ -80,7 +84,7 @@ class CaptureSession(
             .shareIn(scope, SharingStarted.Eagerly, replay = 0)
         val sharedAudio = captureSource.audioFrames()
             .shareIn(scope, SharingStarted.Eagerly, replay = 0)
-        val sharedAccel = biometricSource.accelerometer()
+        val sharedAccel = (accelSource?.accelerometer() ?: biometricSource.accelerometer())
             .shareIn(scope, SharingStarted.Eagerly, replay = 0)
         val sharedHr    = biometricSource.heartRate()
             .shareIn(scope, SharingStarted.Eagerly, replay = 0)
