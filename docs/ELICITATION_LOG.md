@@ -337,7 +337,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ---
 
-### Q6.2 — `[HIGH]` What's defensible as trade secret vs what gets published
+### Q6.2 — `[ANSWERED 2026-05-26]` What's defensible as trade secret vs what gets published
 
 **Context.** The patent covers PIE method. The whitepaper publishes CIAER schema. The codebook and corpus are clearly trade secret. The graph-weight computation method is borderline.
 
@@ -347,8 +347,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Publish the architecture but redact the empirically tuned constants (θ_TC, τ, p_withhold) — methods are public, calibrations are trade secret
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (a) Methods yes, weights no — publish anything that doesn't directly enable a competitor to build the running system.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.6 — publish methods/architecture/schema; weights, codebook contents, corpus, and tuned calibrations stay trade secret. Test: would the artifact let a competitor *build* the system?
 
 ---
 
@@ -384,7 +384,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ---
 
-### Q7.2 — `[HIGH]` Hollowell deployment agreement structure
+### Q7.2 — `[ANSWERED 2026-05-26]` Hollowell deployment agreement structure
 
 **Context.** Currently blocked. The agreement needs to cover data rights, deployment cost, exclusivity, and exit terms.
 
@@ -394,8 +394,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Equity arrangement — Hollowell takes a stake in exchange for being the validation partner
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (a) Free pilot; full data rights to Capps Consulting; Hollowell retains derived-insights use rights.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.7 — free pilot keeps the corpus (core asset) with the IP holder; exit terms follow (corpus does not transfer).
 
 ---
 
@@ -448,7 +448,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §9 — Documentation System
 
-### Q9.1 — `[HIGH]` When does a file get added to the von Neumann set
+### Q9.1 — `[ANSWERED 2026-05-26]` When does a file get added to the von Neumann set
 
 **Context.** The current set is README + CLAUDE.md + CURRENT_PHASE.md + ARCHITECTURE_PRINCIPLES.md + SELECTION_PRINCIPLE.md. Future additions are likely.
 
@@ -458,8 +458,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Allow the set to grow organically; CLAUDE.md §0 always lists current set so re-entry stays bounded
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (c) Grow organically; CLAUDE.md §0 always indexes the current set so re-entry stays bounded.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.8 — files added when a role needs its own home, but every addition updates the canonical list in CLAUDE.md §0. Un-indexed growth is not allowed.
 
 ---
 
@@ -480,7 +480,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §10 — Meta
 
-### Q10.1 — `[HIGH]` What's *not* in this elicitation list that should be
+### Q10.1 — `[ANSWERED 2026-05-26]` What's *not* in this elicitation list that should be
 
 **Context.** This file is itself a constructor output. It cannot fully cover its own gaps — the architect knows things the constructor cannot infer are missing.
 
@@ -490,12 +490,12 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Run a second elicitation pass after the first round of answers is in
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (c) Run a second elicitation pass after this round's answers are in. No new questions added now.
+**Inferred Rule:** Process decision (no §4 rule): schedule a second elicitation pass once the current HIGH/MEDIUM tier is resolved; gaps surfaced by the first round seed the second.
 
 ---
 
-### Q10.2 — `[HIGH]` Tone and posture for SELECTION_PRINCIPLE.md when it's read by a non-Kahn architect
+### Q10.2 — `[ANSWERED 2026-05-26]` Tone and posture for SELECTION_PRINCIPLE.md when it's read by a non-Kahn architect
 
 **Context.** This file will be read by a successor. The selection function is partly judgment, partly aesthetic. How should it be expressed?
 
@@ -505,8 +505,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Hybrid — rules in third person, occasional first-person commentary marked as such
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** Preserve voice, but state the rules explicitly first (rule-first, then rationale/voice).
+**Inferred Rule:** → SELECTION_PRINCIPLE.md "Writing convention" (top of file) + §4.8 — bolded third-person rule first so it transfers cleanly; author voice/rationale rides behind it.
 
 ---
 

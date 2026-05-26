@@ -8,6 +8,8 @@ Read this file when you face a design choice that isn't pre-decided in CLAUDE.md
 
 > **Update protocol.** This file is append-mostly, like the session log. When a new decision is made, write down the rule that produced it. When a rule is promoted to a deep invariant, move it into ARCHITECTURE_PRINCIPLES.md or CLAUDE.md and leave a stub here pointing to where it went. Never delete a rule silently — if a rule is retired, mark it `[RETIRED YYYY-MM-DD]` with the replacement rule below it.
 
+> **Writing convention.** [Q10.2, 2026-05-26] State each rule explicitly first — a bolded, third-person statement a successor can lift and apply without knowing the author. Then preserve the voice: the rationale, the judgment, the occasional first-person aside explaining *why the architect leans this way*. Rule first so it transfers cleanly; voice second so it doesn't go sterile.
+
 ---
 
 ## 0. The Meta-Rule
@@ -143,11 +145,13 @@ The categories below organize accumulated decisions by area. Each entry is a rul
 - **mp4Real™, ArcShield™, CIAER™, CIAER+™ trademark notice on every public artifact.** Non-negotiable, exact text in CLAUDE.md §15.
 - **Provisional patent before arXiv, arXiv before non-provisional.** The sequence is: provisional → arXiv → non-provisional. The provisional establishes the Paris Convention priority date; arXiv establishes the academic priority date; the non-provisional cites both. Counsel reviews the arXiv text against the claims before non-provisional drafting, not before arXiv submission. [Q6.1, 2026-05-24]
 - **Specification rigor over marketing.** Domain-neutral technical language. Speculative elements explicitly flagged. Aspirational features never presented as built features.
+- **Publish methods, never weights.** [Q6.2, 2026-05-26] Architecture, schema, and method (PIE, LLR gating, codebook discretization, OGC, withhold-sampling) are publishable — patent, whitepaper, arXiv. The trained weights, codebook contents, corpus, and empirically tuned calibrations stay trade secret. The test: would this artifact directly let a competitor *build* the running system? If yes, it doesn't ship. Methods describe the shape; the weights are the asset.
 
 ### 4.7 Deployment & Adoption
 
 - **PPPVC Line 1 first, full deployment second.** Validate the foundational pipeline on one expert at one site before generalizing. The validation site is the author. This is acceptable because the architect is honest about confounds and adversarially stress-tests their own claims; it would not be acceptable for an outside observer studying a sample of one.
 - **Zero-IT-footprint single-file PWA for Gen 1 proof of concept.** No enterprise IT involvement required; no capex required; no operator adoption friction. Validates that the pipeline works before investing in dedicated hardware.
+- **Hollowell validation: free pilot, data rights to Capps.** [Q7.2, 2026-05-26] The validation deployment is a free pilot; Capps Consulting holds full data rights to the captured corpus; Hollowell retains use rights to derived insights for its own operations. Fastest path to unblock validation while keeping the corpus — the core asset — with the IP holder. Exit terms follow from this: the corpus does not transfer.
 
 ### 4.8 Documentation System
 
@@ -155,6 +159,8 @@ The categories below organize accumulated decisions by area. Each entry is a rul
 - **CURRENT_PHASE.md is the phenotype and updates every session.** Drift here is recoverable.
 - **Session log is append-only.** Truncate §5 by archiving; never delete from §8.
 - **Decisions get parked in §6 if the rule below doesn't cover them.** The constructor cannot perform the selection function on itself. Honor the separation.
+- **The von Neumann set grows organically, but CLAUDE.md §0 always indexes it.** [Q9.1, 2026-05-26] A new file is added when a role genuinely needs its own home — not on a fixed schedule, not under strict minimalism — but every addition updates the canonical list in CLAUDE.md §0 so a cold re-entry stays bounded. Growth is allowed; un-indexed growth is not.
+- **This file states the rule explicitly first, then preserves author voice.** [Q10.2, 2026-05-26] See the writing convention at the top of the file. A successor must be able to lift the rule cleanly; the author's reasoning rides behind it, not in front of it.
 
 ---
 
