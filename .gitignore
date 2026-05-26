@@ -11,6 +11,7 @@ venv/
 
 # Android / Kotlin
 .gradle/
+.kotlin/
 local.properties
 *.iml
 .idea/
