@@ -12,7 +12,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ## §1 — Codec & Container
 
-### Q1.1 — `[HIGH]` H.265 vs H.264 for the POV track
+### Q1.1 — `[ANSWERED 2026-05-26]` H.265 vs H.264 for the POV track
 
 **Context.** CLAUDE.md §3.1 specifies H.265 (HEVC). H.264 (AVC) is more universally supported and has less encoding cost on lower-end hardware.
 
@@ -22,12 +22,12 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) H.264 for Gen 1, H.265 when Meta Ray-Ban hardware accelerates it
 - (d) Other — please specify
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (c) H.264 for Gen 1; H.265 at Gen 2 when Meta Ray-Ban hardware accelerates it.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.1 — codec tracks hardware-accelerated availability + decoder ubiquity at the current tier, not peak compression. **NOTE:** current code encodes HEVC; needs HEVC→AVC swap for Gen 1.
 
 ---
 
-### Q1.2 — `[HIGH]` Acoustic sample rate — 48 kHz vs 16 kHz
+### Q1.2 — `[ANSWERED 2026-05-26]` Acoustic sample rate — 48 kHz vs 16 kHz
 
 **Context.** CLAUDE.md §3.1 specifies AAC at 48 kHz. 16 kHz is sufficient for voice transcription and machine acoustic signatures up to 8 kHz, and saves significant storage.
 
@@ -37,8 +37,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) 48 kHz on the environmental track, 16 kHz on the voice annotation track
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (c) 48 kHz environmental track, 16 kHz voice-annotation audio.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.1 — sample rate set per track by that track's analyses (richness on environmental, economy on voice). Current 48 kHz acoustic track is correct; no immediate code change (voice is a transcript metadata track today, not raw audio).
 
 ---
 
@@ -89,7 +89,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ---
 
-### Q2.2 — `[HIGH]` BiometricSource behavior when both H10 and Verity Sense are paired
+### Q2.2 — `[ANSWERED 2026-05-26]` BiometricSource behavior when both H10 and Verity Sense are paired
 
 **Context.** Both devices stream HR + accel; only H10 streams ECG. The provider abstraction needs a rule for the dual-paired case.
 
@@ -99,8 +99,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Require explicit selection at app start — fail closed if ambiguous
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (a) Per-channel best — H10 for HR/ECG/R-R, Verity Sense for accel.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.2 — compose the best source per channel, not a primary device. Applies when source-polar's dual-device logic is built (Polar currently decoupled).
 
 ---
 
@@ -176,8 +176,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) No deadline — pending forever; flag in dashboard for manual closure
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (d) Hard stop = end of shift (off-shift the operator can no longer contribute). Within the shift, R_phys can also be resolved *deductively* from the operator's continued decision stream: ongoing decisions on the same problem ⇒ still unresolved; cessation ⇒ the physical outcome held (no further action needed until the next issue).
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.3 — R_phys closure is shift-bounded with a deductive in-shift fallback; telemetry preferred, deduction is a lower-confidence physical-state estimate kept independent of the compliance gate (§6.3).
 
 ---
 
