@@ -4,7 +4,7 @@
 
 The handoff document (`/CLAUDE.md`) describes architecture, schema, and invariants that should never drift. This file describes where the build currently is, what's actively in flight, what's blocking, and what's next. Update it at the end of every working session.
 
-> **Re-entry rule:** Read CLAUDE.md first for architecture. Read this file second for state. Never invert that order.
+> **Re-entry rule:** Read CLAUDE.md first for architecture. Second together this file & Read CURRENT_PHASE_Gemini.md for state. Never invert that order.
 
 ---
 
