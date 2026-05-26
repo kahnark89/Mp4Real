@@ -20,8 +20,8 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-25 — Kahn — architectural clarification: biometrics confirmed optional; Λ_env-only corpus build path unblocked |
-| **Build is** | 🟢 healthy |
+| **Last working session** | 2026-05-26 — Claude Code — first clean debug APK build (`:app:assembleDebug` ✅, SDK-34-verified); Polar biometric path decoupled for Λ_env-only |
+| **Build is** | 🟢 healthy — debug APK assembles |
 
 ---
 
@@ -52,6 +52,8 @@ From CLAUDE.md §11. Do not advance phases until every criterion is checked.
 - [ ] 20–30 candidate windows logged
 - [x] Hand-labeling tool (`tools/shadow-mode-labeler`) operational
 - [ ] All BLE dropouts emit explicit `BiometricGap` records (no silent interpolation)
+
+> **Build status (2026-05-26):** `./gradlew :app:assembleDebug` now produces a debug APK (compile verified against Android SDK 34). This unblocks on-device shadow-session testing — none of the device-verified criteria above are ticked yet. Note: with Polar decoupled, the debug build gates on acoustic + motion only (see §7).
 
 **Phase 1 hard stop:** if ε_sync exceeds 250 ms persistently, halt and debug Polar↔phone clock anchor before proceeding. Document the failure mode here:
 
@@ -98,6 +100,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-26 | W-012 | Android build fixed — `:app:assembleDebug` compiles & packages a debug APK (verified against Android SDK 34). Added `gradle.properties` (`android.useAndroidX=true`), generated the Gradle 8.7 wrapper (`gradlew`/`.bat`/jar), cleaned `settings.gradle.kts` (removed duplicate `:core-capture` + 6 stub-module includes), fixed `llm-claude` manifest (`xmlns:android`), `CandidateWindowLog` `FileWriter(append)` (no `bufferedWriter(append=)`), `llm-claude` okhttp `implementation`→`api` (OkHttpClient in `ClaudeVisionClient` ctor), `MainScreen` core icons (PlayArrow/Close + Box dot, no material-icons-extended). **Polar decoupled**: `BiometricSource`→`NullBiometricSource`, `source-polar` dropped from `:app` and settings. | Λ_env-only build runs on acoustic + motion (Λ_accel=0 since accel was Polar-sourced; Λ_bio=0). `source-polar` also had a Polar-SDK-v5 HR API mismatch. Re-add `source-polar` + bind `PolarBleBiometricSource` for H10 capture. |
 | 2026-05-25 | W-011 | `:app` module scaffold — Hilt DI (KSP 2.0.21-1.0.27, Hilt 2.51.1, hilt-navigation-compose, navigation-compose); `ArcShieldApp` (@HiltAndroidApp); `AppModule` wires `PolarBleApi` → `BiometricSource`, `LlmClient` → `ClaudeVisionClient`, `PlcTelemetrySource` → `VisionTelemetrySource`, `@ApplicationScope` CoroutineScope; `SessionViewModel` (@HiltViewModel) manages `CaptureSession` lifecycle, writes candidate windows to `shadow_mode/*.ndjson`; `MainScreen` (status card, start/stop, nav to labeler, live candidate feed overlay); `MainActivity` (@AndroidEntryPoint, permission launcher, NavHost main↔labeler); all secrets via local.properties → BuildConfig | LabelerScreen wired via NavHost — system back returns to MainScreen; shadow_mode/ dir used so LabelerViewModel finds logs automatically |
 | 2026-05-25 | W-010 | `llm-claude` module — `ClaudeVisionClient` implementing `LlmClient`; `VideoFrameEncoder` (NV21→JPEG→Base64); `parseGaugeValue()` regex extraction handles bare numbers, unit suffixes, tilde prefixes, negatives; `buildRequestJson()` constructs image+text content blocks; OkHttp 4.12 + MockWebServer tests; 12 unit tests | API key injected at DI layer — never committed; Haiku default for cost/latency; generateGuidance() is Phase 3 stub |
 | 2026-05-25 | W-009 | `core-capture` module — `ChannelRingBuffer<T>` (generic ring buffer, thread-safe via RWLock, capacity eviction); `WindowExtractor` (extracts 5-track window from rings); `EpsSyncCoordinator` (NTP-style sync schedule, injectable clock); `VideoEncoderDelegate` + `AudioEncoderDelegate` interfaces; `MediaCodecVideoEncoder` + `MediaCodecAudioEncoder` (async callback, CSD via Deferred<ByteArray>); `CaptureSession` (full I-frame → baseline build → muxer init → live gate orchestration); 20 JVM unit tests (8 ring buffer, 5 window extractor, 7 eps sync) | CaptureSession.start() suspends for iFrameDurationMs, builds LlrBaseline, awaits CSD, writes I-frame, then launches gate; PTS = absoluteNanos − sessionStartNanos |
@@ -107,10 +110,8 @@ Last 10 items max. Anything older lives in version control.
 | 2026-05-24 | — | MCP server wired into Claude Code via `.claude/settings.json`; `corpus_dir` resolved relative to `config.toml` (not CWD) | Server invocable from any working directory |
 | 2026-05-24 | — | MCP server Session 001 — `arcshield/schema.py`, `CorpusBackend` ABC, `JsonCorpusBackend`, `server.py` (7 tools), 28/28 contract tests | Built prior to this repo; unpacked from `tools/arcshield-mcp-v1.zip` |
 | 2026-05-25 | W-006 | `shadow-mode-labeler` Android module — `CandidateWindowLog` (NDJSON logger), `NonMaxSuppressor` (60 s bucket-max), `TauCalibrator`, `LabelerViewModel`, `LabelerScreen` / `CandidateWindowRow` / `TauSummaryCard`; `@Serializable` on `CandidateWindow`; kotlinx.serialization + Compose BOM + lifecycle-viewmodel-compose added to version catalog; 2 JVM test classes (TauCalibratorTest, NonMaxSuppressorTest); pointer README in tools/shadow-mode-labeler/ | Acceptance criterion ticked; wire into :app when app module scaffolded |
-| 2026-05-25 | W-005 | `source-camerax` module — `CameraXCaptureSource` implementing `CaptureSource` (CameraX ImageAnalysis NV21 + AudioRecord 48kHz mono); `FrameDiffMotion` (Y-plane MAD with subsample=4); `Λ_motion` Gaussian-shift GLR wired in `LlrGate`; motion baseline fields added to `LlrBaseline`; `buildBaseline()` accepts `videoFrames` flow; CameraX 1.3.4 added to version catalog; 8 `FrameDiffMotionTest` unit tests; unsigned byte handling verified | Λ_motion now live when `motionAvailable = true` in baseline; 0.0 fallback when no video source connected |
-| 2026-05-25 | W-004 | `LlrBaselineBuilder` — `buildBaseline()` suspend function + `SpectralAccumulator` (Welford per-bin FFT mean/variance) + `computeRmssdStats()` (20-beat sub-window RMSSD variance) + Welford online accel-RMS stats; injectable clock for JVM testability; 13 unit tests with `runTest` + finite flows | Timeout-based collection works for both production (infinite sensor flows cancel at durationMs) and tests (finite flows complete naturally) |
-| 2026-05-25 | W-003 | `core-llr` Λ_bio — `RollingBioStats` (rolling HR mean/variance + RMSSD), activity gate (resting/light/moderate/vigorous), HR-delta GLR + RMSSD-deviation GLR wired into `llrGate()`; 10 unit tests; `activityGate` field added to `CandidateWindow`; bio fields added to `LlrBaseline`; `hrSamples`/`rrSamples` optional params on `llrGate()` | Nonlinear HRV (SD1/SD2, sample entropy) stubbed as `lambdaHrvNl = 0f` — Phase 2 after H10 ECG path live |
-| 2026-05-24 | W-002 | `core-llr` Λ_env gate — `RealFft` (Cooley-Tukey), `KlDivergence`, `RollingAccelRms` (Welford), `LlrBaseline`, `LlrConfig`, `CandidateWindow`, `llrGate()` in shadow mode; 3 unit test classes | Λ_motion + Λ_gaze = 0.0 stubs; Λ_bio = 0.0 placeholder wired for next item |
+
+_Older entries (W-002 … W-005) archived to `phases/archive/recently-completed-2026-05.md`._
 
 ---
 
@@ -132,6 +133,7 @@ Architecture-level questions where Claude Code should **not** decide unilaterall
 Things observed during recent sessions that **could** become problems if they continue. Not yet blocking. Re-evaluate weekly.
 
 - **τ calibration population mixing** — Λ_env-only sessions (no H10) produce a systematically lower Λ distribution than full Λ_env + Λ_bio sessions. Mixing them when fitting τ will skew the threshold. Keep two separate label export files and calibrate τ independently per population until H10 is in continuous use. The TauCalibrator in shadow-mode-labeler operates per-file, so the tooling already supports this — the risk is operator error in combining exports.
+- **Accel absent in the decoupled build (2026-05-26)** — accelerometer samples are sourced from `BiometricSource.accelerometer()` (Polar onboard accel), not a phone IMU. With Polar decoupled to `NullBiometricSource`, Λ_accel = 0, so the current debug APK gates on acoustic + motion only. If Λ_env-only sessions need vibration signal, add a phone-IMU `AccelSource` (SensorManager) feeding the accel flow — standalone module, no consumer changes. This also widens the τ-population gap noted above (acoustic+motion vs. acoustic+accel+motion).
 
 Common patterns to watch for (delete this once seen at least once, since at that point it's documented above):
 
@@ -365,6 +367,17 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - 12 unit tests: 10 parseGaugeValue cases + JSON parse verification + buildRequestJson no-frame case (no image block). MockWebServer declared for future HTTP integration tests.
   - API key never in source — must be injected via BuildConfig or local config in :app module.
   - Next session pickup point: scaffold :app module + Hilt DI wiring all sources together.
+```
+
+```
+2026-05-26 — Claude Code — first clean debug APK build
+  - Made `:app:assembleDebug` compile end-to-end; verified against Android SDK 34 (BUILD SUCCESSFUL → app-debug.apk, ~10.9 MB).
+  - Infra: gradle.properties (android.useAndroidX=true), generated Gradle 8.7 wrapper, trimmed settings.gradle.kts (removed duplicate :core-capture + 6 stub-module includes).
+  - Compile fixes: llm-claude manifest missing xmlns:android; CandidateWindowLog FileWriter(append) (bufferedWriter has no append param); llm-claude okhttp implementation→api (OkHttpClient in ClaudeVisionClient ctor); MainScreen FiberManualRecord/Stop → core icons (PlayArrow/Close + Box dot) to avoid pulling material-icons-extended.
+  - Polar decoupled (per Kahn): BiometricSource → NullBiometricSource; source-polar removed from :app deps and settings. source-polar also had a Polar-SDK-v5 HR API mismatch (data.hr/rrsMs/rrAvailable moved into data.samples[]).
+  - Consequence: Λ_env-only build gates on acoustic + motion (Λ_accel=0 since accel was Polar-sourced; Λ_bio=0). See §7 drift watch.
+  - Not done: src/test sources not compiled (assembleDebug excludes them); on-device shadow session.
+  - Next session pickup point: install app-debug.apk on device, grant CAMERA + RECORD_AUDIO, run a shadow session, confirm candidate windows appear in the Labeler and a τ suggestion renders. Optionally add a phone-IMU AccelSource to restore Λ_accel.
 ```
 
 ---
