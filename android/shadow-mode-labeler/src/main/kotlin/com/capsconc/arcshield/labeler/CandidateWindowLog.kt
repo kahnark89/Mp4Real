@@ -8,6 +8,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.BufferedWriter
 import java.io.File
+import java.io.FileWriter
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -31,7 +32,7 @@ class CandidateWindowLog(val logFile: File) {
 
     init {
         logFile.parentFile?.mkdirs()
-        writer = logFile.bufferedWriter(append = true)
+        writer = FileWriter(logFile, /* append = */ true).buffered()
     }
 
     suspend fun append(window: CandidateWindow) = mutex.withLock {

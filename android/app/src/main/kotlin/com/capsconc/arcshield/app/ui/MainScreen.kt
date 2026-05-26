@@ -1,6 +1,8 @@
 package com.capsconc.arcshield.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,9 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -66,7 +69,7 @@ fun MainScreen(
                     onClick = onRequestPermissions,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Default.FiberManualRecord, contentDescription = null,
+                    Icon(Icons.Default.PlayArrow, contentDescription = null,
                         modifier = Modifier.size(18.dp))
                     Text("  Start Shadow Capture", style = MaterialTheme.typography.labelLarge)
                 }
@@ -84,7 +87,7 @@ fun MainScreen(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
                 ) {
-                    Icon(Icons.Default.Stop, contentDescription = null,
+                    Icon(Icons.Default.Close, contentDescription = null,
                         modifier = Modifier.size(18.dp))
                     Text("  Stop Session", style = MaterialTheme.typography.labelLarge)
                 }
@@ -142,11 +145,10 @@ private fun StatusCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Default.FiberManualRecord,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(12.dp),
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(color, CircleShape)
                 )
                 Text(
                     text = label,

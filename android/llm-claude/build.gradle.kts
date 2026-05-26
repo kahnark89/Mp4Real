@@ -22,7 +22,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.okhttp)
+    api(libs.okhttp)   // OkHttpClient appears in ClaudeVisionClient's public constructor
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
