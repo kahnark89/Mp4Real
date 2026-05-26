@@ -497,6 +497,48 @@ def build_server(config: dict) -> FastMCP:
             log.exception("update_graph_weight failed")
             return _error("update_graph_weight", "BACKEND_ERROR", str(exc))
 
+    # ------------------------------------------------------------------
+    # Tool: get_divergent_chains (graph traversal — Phase 3+)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Return groups of events where multiple operators produced different "
+            "Intuition-to-Action paths from the same Cause signature — the "
+            "multi-expert divergence surface (parallel_event_ids). The divergence "
+            "point is among the highest information-density nodes in the knowledge graph.\n\n"
+            "Args:\n"
+            "  failure_mode_tag: ontology tag to scope the divergence search\n"
+            "  min_operators: minimum distinct operators per group (default 2)\n\n"
+            "AVAILABILITY: requires graph traversal (GraphCorpusBackend, Phase 3). "
+            "On the Phase 1/2 JSON backend this returns NOT_AVAILABLE. The tool is "
+            "declared now so clients can discover it and handle NOT_AVAILABLE gracefully."
+        )
+    )
+    async def get_divergent_chains(
+        ctx,
+        failure_mode_tag : str,
+        min_operators    : int = 2,
+    ) -> str:
+        backend = ctx.request_context.lifespan_context["backend"]
+        try:
+            groups = await backend.get_divergent_chains(failure_mode_tag, min_operators)
+            return _ok(
+                "get_divergent_chains",
+                backend.facility_id,
+                backend.corpus_depth,
+                failure_mode_tag = failure_mode_tag,
+                group_count      = len(groups),
+                divergent_groups = [[_serialize_event(e) for e in group] for group in groups],
+            )
+        except NotImplementedError as exc:
+            return _error("get_divergent_chains", "NOT_AVAILABLE", str(exc))
+        except ValueError as exc:
+            return _error("get_divergent_chains", "INVALID_PARAMS", str(exc))
+        except Exception as exc:
+            log.exception("get_divergent_chains failed")
+            return _error("get_divergent_chains", "BACKEND_ERROR", str(exc))
+
     return mcp
 
 
