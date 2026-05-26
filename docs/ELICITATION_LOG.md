@@ -151,7 +151,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ---
 
-### Q3.2 — `[HIGH]` Versioning of `failure_mode_tag` ontology
+### Q3.2 — `[ANSWERED 2026-05-26]` Versioning of `failure_mode_tag` ontology
 
 **Context.** The controlled vocabulary will grow. CIAER+ events reference tags. When a tag is renamed or refined, old events still point at the old tag.
 
@@ -161,8 +161,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Tags are versioned per ontology release; events carry the ontology version they were tagged under
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** Author had no preference; (a) selected on author's behalf (overridable). Append-only + `subsumes`, chosen to preserve corpus immutability and the append-only-history invariant.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.3 — vocabulary is append-only; refinements create a new tag with a `subsumes` link, never a rename. Rejected aliasing and per-release versioning (both risk silently remapping historical meaning at query time).
 
 ---
 
@@ -228,7 +228,7 @@ Each entry below is a question where, having read everything in the project, I c
 
 ---
 
-### Q4.2 — `[HIGH]` Codebook primitive retirement
+### Q4.2 — `[ANSWERED 2026-05-26]` Codebook primitive retirement
 
 **Context.** A primitive that has never been triggered after N events / M months is evolutionary baggage. Biology prunes. Should the codebook?
 
@@ -238,12 +238,12 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Demote rather than retire — move to a `legacy_primitives` set, no longer matched by default but available on explicit query
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (c) Nothing is ever removed once it's in the book; tidiness comes from trimming outliers out of active sessions into an archived set, preserving the fact of occurrence in case it recurs.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.4 — codebook is append-only; cold/outlier primitives demote to an archived `legacy_primitives` set (excluded from active-session matching, auto-re-promoted on recurrence).
 
 ---
 
-### Q4.3 — `[HIGH]` LoRA training cadence
+### Q4.3 — `[ANSWERED 2026-05-26]` LoRA training cadence
 
 **Context.** SELECTION_PRINCIPLE.md §4.4 says LoRA at ~200 events. What's the *update* cadence after the first LoRA?
 
@@ -253,8 +253,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Drift-triggered — retrain when D_KL(P‖Q) exceeds threshold
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (d) Novelty-driven continuous loop — a fluid back-and-forth that learns from statistically novel data and outputs statistically relevant intelligence / predictive modeling. Closest to (c) but keyed on statistical novelty rather than a single drift threshold.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.4 — Twin update cadence is novelty-driven, not scheduled; novel events feed learning, divergence from the corpus distribution schedules the next refresh (mirrors the MDL/codec identity).
 
 ---
 
@@ -285,8 +285,8 @@ Each entry below is a question where, having read everything in the project, I c
 - (c) Provider chosen per-deployment — facility config decides
 - (d) Other
 
-**Answer:** _____
-**Inferred Rule:** _____
+**Answer:** (c) Per deployment — facility config picks the provider; code stays provider-agnostic.
+**Inferred Rule:** → SELECTION_PRINCIPLE.md §4.5 — one provider per deployment serves both elicitation and guidance; the task distinction lives in prompt/parse contracts, not in per-task provider routing.
 
 ---
 
