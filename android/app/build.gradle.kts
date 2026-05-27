@@ -82,6 +82,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material.icons.core)
+    implementation(libs.compose.material.icons.extended)
     implementation(libs.navigation.compose)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
