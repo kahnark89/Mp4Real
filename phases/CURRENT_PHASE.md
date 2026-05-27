@@ -20,8 +20,8 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-27 — Claude Code — OGC pending_R_phys deferred queue (C2 architectural commitment); SQLite backend live; 11 MCP tools |
-| **Build is** | 🟢 healthy — debug APK assembles, 134 Android unit tests green |
+| **Last working session** | 2026-05-27 — Claude Code — Nonlinear HRV (SD1/SD2/SampEn) wired into Λ_bio gate; OGC pending_R_phys deferred queue; SQLite backend live; 11 MCP tools |
+| **Build is** | 🟢 healthy — debug APK assembles, 144 Android unit tests green, 90 Python backend tests green |
 
 ---
 
@@ -67,7 +67,7 @@ Ordered by intended pickup, not by priority alone. Top of list is next.
 2. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement. **No longer blocks corpus building** — see item 1. Unblocks full-signal (Λ_env + Λ_bio) sessions and the second τ calibration pass.
 2. ~~**Scaffold `:app` module** — Compose entry point + Hilt DI wiring all sources → core-capture → core-codec. Wire `CaptureSession.candidateWindows` flow into `LabelerScreen` as debug overlay. Shadow-mode-labeler needs to be reachable from the main screen.~~ **DONE 2026-05-25** — see §5.
 3. ~~**Wire `core-llr` Λ_bio** from HR delta + HRV-RMSSD ratio — Polar PMD-derived.~~ **DONE 2026-05-25** — see §5.
-4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
+4. ~~**Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`**~~ **DONE 2026-05-27 (W-024)** — `NonlinearHrv.kt` pure math; `RollingBioStats` extended; `LlrBaseline` + `LlrBaselineBuilder` + `LlrGate` all wired; `lambdaHrvNl` stub replaced with real GLR computation. See §5.
 5. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
 6. ~~**Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.~~ **DONE 2026-05-25** — see §5.
 7. ~~**[MCP-MOD-001] `SqliteCorpusBackend`**~~ **DONE 2026-05-27 (W-022)** — see §5.
@@ -98,6 +98,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-27 | W-024 | **Nonlinear HRV (SD1/SD2/SampEn) wired into Λ_bio gate** — `NonlinearHrv.kt`: pure sdnn/rmssd/sd1/sd2/sampleEntropy (O(N²) SampEn, bounded by rolling window); `RollingBioStats.BioSnapshot` extended (sd1Ms, sd2Ms, sampEn, hasNonlinearHrv); `LlrBaseline` +7 NL HRV fields (all defaulted for backward compat); `LlrBaselineBuilder` adds `computeNonlinearHrvStats()` using 20-beat / stride-10 sub-windows; `LlrGate` replaces `lambdaHrvNl = 0f` stub with Gaussian-shift GLR, NaN-guarded for SampEn; `NonlinearHrvTest` 14 unit tests. Fires only when `baseline.nonlinearHrvAvailable && bioSnap.hasNonlinearHrv` (requires H10 with ≥20 R-R in window). 144 Android unit tests green. | Phase 2 item — no device required. |
 | 2026-05-27 | W-023 | **[MCP-MOD-004] Per-operator write auth** — `[auth] write_operators = [...]` in `config.toml`; `_check_write_auth()` helper in `build_server()`; `ingest_event` checks `event.operator_id`; `update_graph_weight` checks `updated_by`; empty allowlist = no restriction (backward compatible); 6 new auth tests (no-allowlist pass, in-list pass, denied for both tools); 68/68 tests green. | W-022 (SQLite) + W-023 (auth) land in same PR. |
 | 2026-05-27 | W-022 | **[MCP-MOD-001] `SqliteCorpusBackend` + [MOD-003] value-proximity scoring** — `sqlite_backend.py`: WAL journal, `events` + `weight_audit` tables, 4 indexed columns; `query_by_cause_signature`: escalation_state index pre-filter then `1/(1+|q_val−s_val|)` per shared instrument, graph_weight 10% tiebreaker; `corpus_depth` O(1) in-memory counter. Contract fixture extended to `params=["json","sqlite"]`; 58/58 tests (29×2). | |
 | 2026-05-27 | W-021 | **Bug fixes** — `VideoPlayerView` always showed placeholder (`remember(exoPlayer){mediaItemCount>0}` baked in false at first render before async `bindVideoFile()` completed); fixed via `hasVideo: StateFlow<Boolean>` in `LabelerViewModel`. Silent `IOException` in `candidateWindows` collect swallowed by `SupervisorJob` could freeze count display; wrapped in try-catch. | PR #3 merged to main at `307a2c8`. |
@@ -397,6 +398,18 @@ YYYY-MM-DD — Kahn / Claude Code session #N
 ```
 
 ```
+2026-05-27 — Claude Code — W-024: nonlinear HRV wired into core-llr
+  - NonlinearHrv.kt: sdnn, rmssd, sd1, sd2, sampleEntropy pure functions. SampEn is O(N²) but bounded by rolling window (~75–300 beats), sub-ms in practice.
+  - RollingBioStats.BioSnapshot extended: sd1Ms, sd2Ms, sampEn, hasNonlinearHrv. Computed when rrBuffer.size >= 20 (MIN_NL_RR).
+  - LlrBaseline: 7 new nonlinear HRV fields (sd1BaselineMs/Var, sd2BaselineMs/Var, sampEnBaseline/Variance, nonlinearHrvAvailable). All defaulted; backward compatible.
+  - LlrBaselineBuilder: computeNonlinearHrvStats() uses same 20-beat/stride-10 sub-window estimator as RMSSD variance. Returns Triple7 data class.
+  - LlrGate: lambdaHrvNl 0f stub replaced with real GLR (lambdaSd1 + lambdaSd2 + lambdaSampEn). NaN guard on SampEn. Gate fires only when both baseline.nonlinearHrvAvailable and bioSnap.hasNonlinearHrv.
+  - NonlinearHrvTest: 14 unit tests.
+  - 144 Android unit tests green. 90 Python backend tests green.
+  - Next session pickup point: Phase 1 hand-curated codebook in backend/codebook/ (Python dict keyed by failure_mode_tag, cosine-similarity matching on per-event summary embeddings — CLAUDE.md §5.1).
+```
+
+```
 2026-05-27 — Claude Code — MCP-MOD-001/003/004: SQLite backend + value-proximity + write auth
   - SqliteCorpusBackend complete: WAL journal, events + weight_audit tables, 4 indexed columns, O(1) corpus_depth.
   - MOD-003 value-proximity scoring live in SqliteCorpusBackend.query_by_cause_signature: 1/(1+|q−s|) per shared instrument, graph_weight 10% tiebreaker.
@@ -437,7 +450,7 @@ YYYY-MM-DD — Kahn / Claude Code session #N
 
 Single-source summary of the Python backend and MCP corpus server. Full implementation specs for deferred MOD items are in `backend/api/SESSION_LOG.md` — read that file when actually implementing a MOD item, not just triaging.
 
-### Current build state (as of 2026-05-24)
+### Current build state (as of 2026-05-27)
 
 | File | Status | Notes |
 |---|---|---|
@@ -451,17 +464,21 @@ Single-source summary of the Python backend and MCP corpus server. Full implemen
 
 **Run tests:** `cd backend/api && python -m pytest tests/ -v --asyncio-mode=auto`
 
-### 7 MCP tools (server.py)
+### 11 MCP tools (server.py)
 
 | Tool | Purpose |
 |---|---|
 | `list_failure_modes` | All failure mode tags with event counts |
 | `query_by_failure_mode` | Events matching a tag, ordered by graph_weight |
-| `query_by_cause_signature` | Sensor-signature similarity search (Phase 1: instrument-coverage score) |
+| `query_by_cause_signature` | Sensor-signature proximity search (value-proximity scoring — MOD-003) |
 | `get_event` | Full CIAER+ record by event_id |
 | `get_shadow_actions` | Rejected alternatives for an event |
-| `ingest_event` | Write a new CIAER+ event (requires `allow_writes = true`) |
-| `update_graph_weight` | Adjust graph_weight with audit trail |
+| `ingest_event` | Write a new CIAER+ event (write-auth checked) |
+| `update_graph_weight` | Adjust graph_weight with audit trail (write-auth checked) |
+| `get_divergent_chains` | Parallel-expert divergence chains (JSON backend: NOT_AVAILABLE stub) |
+| `record_r_phys` | Record R_phys arrival and fire OGC weight update |
+| `expire_r_phys_deadlines` | Mark overdue PENDING events INDETERMINATE |
+| `list_pending_r_phys` | List events awaiting R_phys arrival, sorted by deadline |
 
 ### Corpus state
 
