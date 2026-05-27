@@ -20,8 +20,8 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-27 — Claude Code — Nonlinear HRV (SD1/SD2/SampEn) wired into Λ_bio gate; OGC pending_R_phys deferred queue; SQLite backend live; 11 MCP tools |
-| **Build is** | 🟢 healthy — debug APK assembles, 144 Android unit tests green, 90 Python backend tests green |
+| **Last working session** | 2026-05-27 — Claude Code — Runtime settings screen; runtime source selection (no rebuild required); camera live preview; device-independence fixes; permission bug fix |
+| **Build is** | 🟢 healthy — debug APK assembles clean |
 
 ---
 
@@ -29,7 +29,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 
 Things being worked on right now. Move items here from §3 (Backlog) when starting; move to §5 (Completed) on acceptance. Limit WIP to 3 active items at a time — more than that means something is actually blocked and should be in §4.
 
-_No active items — see §5 for recently completed work. Next: run Λ_env-only shadow sessions (backlog item #1)._
+_No active items — see §5 for recently completed work. Next: run Λ_env-only shadow sessions on Pixel 9 Pro (backlog item #1). APK installed and shadow capture confirmed working._
 
 | ID | Item | Module(s) | Started | Owner | State |
 |---|---|---|---|---|---|
@@ -98,6 +98,10 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-27 | W-028 | **Runtime settings screen** — `SettingsRepository` (SharedPreferences, StateFlow per setting, BuildConfig defaults on first launch); `SettingsViewModel` (@HiltViewModel, hardware availability booleans, BT bond check); `SettingsScreen` (LazyColumn: API Keys / Biometric Source / Video Source / Accel Source / Session Parameters / Device Status panels; auto-save on change; password-masked Claude key field); gear icon in MainScreen TopAppBar; `"settings"` NavHost route in MainActivity. All settings take effect on next session start; API key change requires restart. | `SettingsRepository` eliminates rebuild-per-config cycle. |
+| 2026-05-27 | W-027 | **Per-session source creation + `SettingsRepository` DI pivot** — `SessionViewModel` constructor reduced to `(@ApplicationContext Context, SettingsRepository)`; `makeBiometricSource()` / `makeAccelSource()` / `makeCaptureSource()` helpers build fresh sources from live settings on each `startSession()` call; `iFrameDurationMs`, `facilityId`, `lineId` all read from settings; `AppModule` removes `provideBiometricSource`, `provideAccelSource`, `provideCaptureSourceFactory`, `providePlcTelemetrySource`; `provideLlmClient` now reads `settings.claudeApiKey.value`. | |
+| 2026-05-27 | W-026 | **Camera live preview in MainScreen** — `camerax-view 1.3.4` added to version catalog + app deps; `CameraXCaptureSource` accepts optional `Preview` parameter (bound alongside `ImageAnalysis` in single `bindToLifecycle` call); `SessionViewModel` creates `Preview.Builder().build()` when `videoSource == PHONE_CAMERA` and exposes `cameraPreview: StateFlow<Preview?>`; `MainScreen` renders `AndroidView { PreviewView }` at 16:9 above status card during BUILDING/RECORDING; `DisposableEffect` calls `setSurfaceProvider(null)` on dispose. | GPU-path preview; no YUV→bitmap conversion overhead. |
+| 2026-05-27 | W-025 | **Device-independence + permission bug fixes** — (1) `BLUETOOTH` removed from `requestMultiplePermissions` list: on API 31+ it is deprecated and returns `false` silently in the grants callback, causing `allGranted = false` and blocking all session starts on Pixel 9 Pro; (2) permission denial now shows a Toast listing the specific denied permissions; (3) `AppModule.provideBiometricSource` falls back to `NullBiometricSource` when `POLAR_DEVICE_ID` blank or Polar init throws; (4) `PolarBleBiometricSource.connect()` and `startReconnectLoop()` catch `Exception` (not just `PolarInvalidArgument`) so `SecurityException` / `IllegalStateException` from BT adapter don't escape; (5) Building button label now shows `(~90 s)` duration hint. | Root cause of "nothing happened" on device confirmed and fixed. |
 | 2026-05-27 | W-024 | **Nonlinear HRV (SD1/SD2/SampEn) wired into Λ_bio gate** — `NonlinearHrv.kt`: pure sdnn/rmssd/sd1/sd2/sampleEntropy (O(N²) SampEn, bounded by rolling window); `RollingBioStats.BioSnapshot` extended (sd1Ms, sd2Ms, sampEn, hasNonlinearHrv); `LlrBaseline` +7 NL HRV fields (all defaulted for backward compat); `LlrBaselineBuilder` adds `computeNonlinearHrvStats()` using 20-beat / stride-10 sub-windows; `LlrGate` replaces `lambdaHrvNl = 0f` stub with Gaussian-shift GLR, NaN-guarded for SampEn; `NonlinearHrvTest` 14 unit tests. Fires only when `baseline.nonlinearHrvAvailable && bioSnap.hasNonlinearHrv` (requires H10 with ≥20 R-R in window). 144 Android unit tests green. | Phase 2 item — no device required. |
 | 2026-05-27 | W-023 | **[MCP-MOD-004] Per-operator write auth** — `[auth] write_operators = [...]` in `config.toml`; `_check_write_auth()` helper in `build_server()`; `ingest_event` checks `event.operator_id`; `update_graph_weight` checks `updated_by`; empty allowlist = no restriction (backward compatible); 6 new auth tests (no-allowlist pass, in-list pass, denied for both tools); 68/68 tests green. | W-022 (SQLite) + W-023 (auth) land in same PR. |
 | 2026-05-27 | W-022 | **[MCP-MOD-001] `SqliteCorpusBackend` + [MOD-003] value-proximity scoring** — `sqlite_backend.py`: WAL journal, `events` + `weight_audit` tables, 4 indexed columns; `query_by_cause_signature`: escalation_state index pre-filter then `1/(1+|q_val−s_val|)` per shared instrument, graph_weight 10% tiebreaker; `corpus_depth` O(1) in-memory counter. Contract fixture extended to `params=["json","sqlite"]`; 58/58 tests (29×2). | |
@@ -190,6 +194,22 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - Integrated all 9 MOD items and 3 open questions from SESSION_LOG.md into this file: MOD-005 (escalation_delta invariant) added top of backlog; MOD-007/008/006 raised to §6; corpus bootstrap added to §4.
   - Surprises: MOD-005 (escalation_delta coherence check) is listed in the CorpusBackend docstring as a MUST but is NOT implemented in JsonCorpusBackend — this is a CLAUDE.md §2.4 invariant violation. Priority item in backlog.
   - Next session pickup point: implement MOD-005 escalation_delta check in json_backend.py, then scaffold source-polar Kotlin module.
+```
+
+```
+2026-05-27 — Kahn / Claude Code — device bring-up session; settings + UX sprint
+  - What was worked on: installed APK on Pixel 9 Pro; diagnosed "nothing happened" bug (BLUETOOTH in
+    permission request returns false on API 31+); fixed permission flow; hardened device-independence
+    so shadow mode runs with just the phone (no Polar, no glasses); added runtime settings screen
+    (API keys, source selection, session params, device status); added camera live preview in
+    MainScreen (16:9, GPU path, active during BUILDING/RECORDING); per-session source creation from
+    SettingsRepository eliminates rebuild-per-config cycles; merged all work to main.
+  - What changed in state above: W-025/026/027/028 completed; §1 active items cleared; session log appended.
+  - Surprises: BLUETOOTH permission returning false on API 31+ was not caught by any existing test
+    (all unit tests are JVM-side; permission flow is device-only). Worth adding an instrumented test
+    for the grants-callback logic.
+  - Next session pickup point: install new APK on Pixel 9 Pro, verify shadow capture starts cleanly,
+    run first Λ_env-only shift and label candidate windows. Start τ calibration data collection.
 ```
 
 ```
