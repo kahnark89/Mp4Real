@@ -51,7 +51,7 @@ class EpsSyncMeasureTest {
         val r = EpsSyncMeasure.measure(1_000_000_000L, 800_000_000L)
         assertEquals(-200_000_000L, r.offsetNanos)
         assertEquals(200_000_000L, r.absOffsetNanos)
-        assertTrue(r.lowSyncConfidence)
+        assertFalse(r.lowSyncConfidence)  // 200ms < 250ms threshold (CLAUDE.md §3.2)
     }
 
     @Test

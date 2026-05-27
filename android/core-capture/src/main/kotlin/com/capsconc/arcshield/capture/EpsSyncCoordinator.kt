@@ -16,6 +16,7 @@ class EpsSyncCoordinator(
 ) {
     private val measurements = mutableListOf<EpsSyncMeasure.SyncResult>()
     private var lastSyncNanos: Long = 0L
+    private var hasSynced: Boolean = false
 
     // Record a clock pair from a single handshake round-trip.
     // phoneNanos: elapsedRealtimeNanos on the phone side.
@@ -26,6 +27,7 @@ class EpsSyncCoordinator(
         synchronized(this) {
             measurements.add(result)
             lastSyncNanos = phoneNanos
+            hasSynced = true
         }
     }
 
@@ -40,7 +42,7 @@ class EpsSyncCoordinator(
     fun isSyncDue(): Boolean {
         val now = clock()
         return synchronized(this) {
-            lastSyncNanos == 0L || (now - lastSyncNanos) >= syncIntervalMs * 1_000_000L
+            !hasSynced || (now - lastSyncNanos) >= syncIntervalMs * 1_000_000L
         }
     }
 
@@ -48,6 +50,7 @@ class EpsSyncCoordinator(
         synchronized(this) {
             measurements.clear()
             lastSyncNanos = 0L
+            hasSynced = false
         }
     }
 }
