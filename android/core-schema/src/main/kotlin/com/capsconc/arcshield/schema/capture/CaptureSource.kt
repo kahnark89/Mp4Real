@@ -1,5 +1,6 @@
 package com.capsconc.arcshield.schema.capture
 
+import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.flow.Flow
 
 // ---------------------------------------------------------------------------
@@ -62,4 +63,8 @@ interface CaptureSource {
     fun videoFrames(): Flow<VideoFrame>
     fun audioFrames(): Flow<AudioFrame>
     val sourceId: String   // "phone_cameraX_v1" | "meta_raybans_v1"
+}
+
+interface CaptureSourceFactory {
+    fun create(lifecycleOwner: LifecycleOwner): CaptureSource
 }

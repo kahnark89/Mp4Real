@@ -39,6 +39,10 @@ android {
         // Phase 1 facility constants — not secrets, but kept configurable.
         buildConfigField("String", "FACILITY_ID", "\"hollowell_industries\"")
         buildConfigField("String", "LINE_ID",     "\"ppvc_line_1\"")
+        buildConfigField(
+            "String", "GLASSES_DEVICE_ID",
+            "\"${localProperties.getProperty("GLASSES_DEVICE_ID", "")}\""
+        )
     }
 
     buildFeatures {
@@ -63,6 +67,7 @@ dependencies {
     implementation(project(":source-camerax"))
     implementation(project(":source-imu"))
     implementation(project(":source-polar"))
+    implementation(project(":source-meta-raybans"))
     implementation(project(":source-vision-telemetry"))
     implementation(project(":llm-claude"))
 

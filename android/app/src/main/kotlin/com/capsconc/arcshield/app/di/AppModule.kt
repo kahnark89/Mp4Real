@@ -2,8 +2,10 @@ package com.capsconc.arcshield.app.di
 
 import android.content.Context
 import com.capsconc.arcshield.app.BuildConfig
+import com.capsconc.arcshield.app.capture.DefaultCaptureSourceFactory
 import com.capsconc.arcshield.llm.claude.ClaudeVisionClient
 import com.capsconc.arcshield.schema.biometric.BiometricSource
+import com.capsconc.arcshield.schema.capture.CaptureSourceFactory
 import com.capsconc.arcshield.schema.imu.AccelSource
 import com.capsconc.arcshield.schema.llm.LlmClient
 import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
@@ -69,6 +71,13 @@ object AppModule {
     @Provides @Singleton
     fun provideLlmClient(): LlmClient =
         ClaudeVisionClient(apiKey = BuildConfig.CLAUDE_API_KEY)
+
+    // ---- CaptureSourceFactory -----------------------------------------
+    // Prefers Meta Ray-Ban glasses when GLASSES_DEVICE_ID is set and the
+    // device is bonded; falls back to CameraX otherwise (CLAUDE.md §9).
+    @Provides @Singleton
+    fun provideCaptureSourceFactory(@ApplicationContext ctx: Context): CaptureSourceFactory =
+        DefaultCaptureSourceFactory(ctx, BuildConfig.GLASSES_DEVICE_ID)
 
     // ---- PlcTelemetrySource -------------------------------------------
     // VisionTelemetrySource replaces a direct PLC API for Phase 1–2.
