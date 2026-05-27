@@ -27,7 +27,11 @@ corpus_dir = "./corpus"
 # password = "REPLACE_ME"
 
 [auth]
-# Future: operator_id allowlist for write tool authorization.
-# Phase 1: write access is controlled only by allow_writes above.
-# Phase 2: per-operator signed tokens required for ingest_event and update_graph_weight.
-# write_operators = ["op_hash_abc123", "op_hash_def456"]
+# Per-operator write authorization (MCP-MOD-004).
+# When write_operators is present and non-empty, ingest_event and
+# update_graph_weight verify that event.operator_id / updated_by appears
+# in this list before touching the backend. Empty list = no restriction.
+# Values are the operator_id hashes used in CIAER+ event records.
+# Phase 3 upgrade path: replace list lookup with signed-token verification
+# once MCP header support lands upstream.
+write_operators = ["op_hash_abc123"]   # seed operator from April 8 PIE demo
