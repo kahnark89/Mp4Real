@@ -30,6 +30,7 @@ junit                       = { group = "junit",                       name = "j
 camerax-core                = { group = "androidx.camera",             name = "camera-core",                 version.ref = "cameraX"    }
 camerax-camera2             = { group = "androidx.camera",             name = "camera-camera2",              version.ref = "cameraX"    }
 camerax-lifecycle           = { group = "androidx.camera",             name = "camera-lifecycle",            version.ref = "cameraX"    }
+camerax-view                = { group = "androidx.camera",             name = "camera-view",                 version.ref = "cameraX"    }
 kotlinx-serialization-json  = { group = "org.jetbrains.kotlinx",       name = "kotlinx-serialization-json",  version.ref = "kotlinxSerialization" }
 compose-bom                 = { group = "androidx.compose",            name = "compose-bom",                 version.ref = "composeBom" }
 compose-ui                  = { group = "androidx.compose.ui",         name = "ui"                                                     }
