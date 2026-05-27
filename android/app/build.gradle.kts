@@ -86,6 +86,9 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
 
+    // camerax-view for PreviewView (Task 2 — camera preview in MainScreen)
+    implementation(libs.camerax.view)
+
     // ---- Android / Coroutines --------------------------------------------
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
