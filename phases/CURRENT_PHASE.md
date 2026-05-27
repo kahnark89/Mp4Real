@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-27 — Claude Code — MCP-MOD-004 per-operator write auth; SQLite backend (MCP-MOD-001) + MOD-003 value-proximity scoring; Phase 1 Android code complete |
+| **Last working session** | 2026-05-27 — Claude Code — OGC pending_R_phys deferred queue (C2 architectural commitment); SQLite backend live; 11 MCP tools |
 | **Build is** | 🟢 healthy — debug APK assembles, 134 Android unit tests green |
 
 ---
