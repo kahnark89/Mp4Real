@@ -89,9 +89,6 @@ class SessionViewModel @Inject constructor(
                 // finds it automatically.
                 val shadowDir = File(context.filesDir, "shadow_mode").also { it.mkdirs() }
                 val logFile = File(shadowDir, "${timestamp}_$sessionId.ndjson")
-                val log = CandidateWindowLog(logFile)
-                windowLog = log
-
                 val captureSource = captureSourceFactory.create(lifecycleOwner)
                 val muxer = AndroidMp4RealMuxer(outputFile)
                 val sessionMetadata = SessionMetadata(
@@ -104,6 +101,10 @@ class SessionViewModel @Inject constructor(
                     sessionStartNanos = SystemClock.elapsedRealtimeNanos(),
                 )
                 val writer = Mp4RealWriter(muxer, sessionMetadata, outputFile)
+
+                val log = CandidateWindowLog(logFile)
+                log.writeHeader(sessionMetadata.sessionStartNanos)
+                windowLog = log
 
                 val config = CaptureSessionConfig(
                     outputDir        = outputDir,

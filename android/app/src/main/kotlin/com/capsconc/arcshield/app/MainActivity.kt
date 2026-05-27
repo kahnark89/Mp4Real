@@ -15,10 +15,14 @@ import androidx.navigation.compose.rememberNavController
 import com.capsconc.arcshield.app.ui.MainScreen
 import com.capsconc.arcshield.app.ui.SessionViewModel
 import com.capsconc.arcshield.labeler.ui.LabelerScreen
+import com.capsconc.arcshield.schema.llm.LlmClient
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var llmClient: LlmClient
 
     // All permissions required before startSession() is called.
     private val requiredPermissions: Array<String> by lazy {
@@ -74,7 +78,7 @@ class MainActivity : ComponentActivity() {
                         composable("labeler") {
                             // LabelerScreen manages its own internal back (clearSelection).
                             // System back + NavHost handle returning to "main".
-                            LabelerScreen()
+                            LabelerScreen(llmClient = llmClient)
                         }
                     }
                 }
