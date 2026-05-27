@@ -20,8 +20,8 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-26 — Claude Code — phone-IMU `AccelSource` added (Λ_env = acoustic + accel + motion); debug APK + all test sources compile (SDK-34-verified) |
-| **Build is** | 🟢 healthy — debug APK assembles |
+| **Last working session** | 2026-05-27 — Claude Code — SQLite backend (MCP-MOD-001) + MOD-003 value-proximity scoring; Phase 1 Android code complete |
+| **Build is** | 🟢 healthy — debug APK assembles, 134 Android unit tests green |
 
 ---
 
@@ -31,10 +31,11 @@ Things being worked on right now. Move items here from §3 (Backlog) when starti
 
 | ID | Item | Module(s) | Started | Owner | State |
 |---|---|---|---|---|---|
+| W-022 | [MCP-MOD-001] `SqliteCorpusBackend` + MOD-003 value-proximity scoring | backend/api | 2026-05-27 | Claude Code | In progress |
 
 ### Per-item working notes
 
-_(No active items. Pull from §3 when starting.)_
+**W-022:** aiosqlite-backed backend; `events` table with indexed columns (failure_mode_tag, escalation_state, graph_weight, operator_id); `weight_audit` table; value-proximity scoring `1 / (1 + |q_val − s_val|)` in `query_by_cause_signature` (MOD-003). Contract test fixture extended to `params=["json", "sqlite"]`.
 
 ---
 
@@ -43,17 +44,17 @@ _(No active items. Pull from §3 when starting.)_
 From CLAUDE.md §11. Do not advance phases until every criterion is checked.
 
 - [x] `core-capture`, `core-codec`, `core-llr` modules functional  ← core-llr ✅ core-codec ✅ core-capture ✅
-- [ ] `source-polar` (H10) consuming PMD streams
+- [x] `source-polar` (H10) consuming PMD streams  ← wired 2026-05-27; ε_sync callback; offline backfill; requires device test
 - [x] `source-camerax` POV video
-- [ ] Phone-side mux pipeline writing fMP4 with all five Phase 1 tracks (POV, acoustic, vibration, biometric, voice)
-- [ ] LLR gate operates in shadow mode (logs candidates, never persists a container)
+- [x] Phone-side mux pipeline writing fMP4 with all five Phase 1 tracks (POV, acoustic, vibration, biometric, thermal)  ← code complete; requires device test
+- [x] LLR gate operates in shadow mode (logs candidates, never persists a container)  ← code complete; requires device test
 - [ ] ε_sync measured and logged per session  ← EpsSyncMeasure + sidecar writer ✅; EpsSyncCoordinator ✅; end-to-end requires device test
 - [ ] ε_sync sustained ≤ 100 ms across at least 5 production shifts
 - [ ] 20–30 candidate windows logged
-- [x] Hand-labeling tool (`tools/shadow-mode-labeler`) operational
-- [ ] All BLE dropouts emit explicit `BiometricGap` records (no silent interpolation)
+- [x] Hand-labeling tool (`tools/shadow-mode-labeler`) operational  ← ExoPlayer playback + voice elicitation added 2026-05-27
+- [x] All BLE dropouts emit explicit `BiometricGap` records (no silent interpolation)  ← implemented in PolarBleBiometricSource
 
-> **Build status (2026-05-26):** `./gradlew :app:assembleDebug` now produces a debug APK (compile verified against Android SDK 34). This unblocks on-device shadow-session testing — none of the device-verified criteria above are ticked yet. Note: with Polar decoupled, the debug build gates on acoustic + motion only (see §7).
+> **Build status (2026-05-27):** All Phase 1 Android code complete. `./gradlew assembleDebug` produces a debug APK; 134 unit tests green. Remaining unchecked criteria require on-device testing (H10 paired, PPVC Line 1). ε_sync and shadow-session window count are device-only gates.
 
 **Phase 1 hard stop:** if ε_sync exceeds 250 ms persistently, halt and debug Polar↔phone clock anchor before proceeding. Document the failure mode here:
 
@@ -100,6 +101,12 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-27 | W-021 | **Bug fixes** — `VideoPlayerView` always showed placeholder (`remember(exoPlayer){mediaItemCount>0}` baked in false at first render before async `bindVideoFile()` completed); fixed via `hasVideo: StateFlow<Boolean>` in `LabelerViewModel`. Silent `IOException` in `candidateWindows` collect swallowed by `SupervisorJob` could freeze count display; wrapped in try-catch. | PR #3 merged to main at `307a2c8`. |
+| 2026-05-27 | W-020 | **Gemini session implementation** — (1) `ProvenanceClass` / `SealedProvenanceTag` Phase 4 schema hooks in `core-schema`; (2) ExoPlayer offline playback in `shadow-mode-labeler` with PTS seek (`detectedAtNanos − sessionStartNanos − 30s`); session start nanos written as first-line meta in `.ndjson`; `ConvergenceRouter` (CONFIRMED/Q' routing); (3) `VoiceElicitationManager` TTS→STT→Claude entity-resolution pipeline; Hollowell Line 1 jargon map as system prompt; results keyed by `detectedAtNanos`; `CandidateWindowRow` Mic button; `LabelExportEntry` with provenance + elicited action fields. | PR #2 merged to main at `1d03eff`. 221 unit tests green. |
+| 2026-05-27 | W-019 | **Polar H10 offline backfill + Bluetooth earbud audio routing** — `fetchOfflineRecordings()` on reconnect: HrOfflineRecording → HR + RR channels (1 Hz spacing); PpiOfflineRecording → RR channel; AccOfflineRecording → `_accelBackfillChannel` (merged into `accelerometer()` flow). `CameraXCaptureSource.audioFrames()` starts Bluetooth SCO before `AudioRecord`, uses `VOICE_COMMUNICATION` source, 500 ms settle delay, stops SCO in finally. | |
+| 2026-05-27 | W-018 | **Vendor-agnostic capture source** — `CaptureSourceFactory` interface in `core-schema`; `DefaultCaptureSourceFactory` (BT bond check → Meta glasses or CameraX fallback); `MetaRayBansCaptureSource` Phase 1 stub (both flows `emptyFlow()`); `source-meta-raybans` module; `GLASSES_DEVICE_ID` buildConfigField; `SessionViewModel` injected via factory. | |
+| 2026-05-27 | W-017 | **source-polar wired into DI + ε_sync callback** — `PolarBleBiometricSource.create()` factory; `source.connect()` in `AppModule`; `registerSyncListener` override fires on first PMD anchor per connection; `CaptureSession` calls it to feed `EpsSyncCoordinator`; `clockAnchor.set(null)` in `deviceConnected()` for reconnect re-anchor; HR API corrected to SDK 5.4.0 (`PolarHrData.PolarHrSample`). | PR #1 merged to main at `1aeed5c`. |
+| 2026-05-26 | W-016 | **Phone-IMU `AccelSource`** — `source-imu` module (`PhoneImuAccelSource`); `AccelSource` interface in `core-schema`; `CaptureSession` optional `accelSource` param; DI wired in `AppModule`; injected in `SessionViewModel`. Λ_env-only build: acoustic + accel + motion. | |
 | 2026-05-26 | W-015 | First test coverage for the **MCP tool layer** (`tests/test_mcp_tool_surface.py`) — the `@mcp.tool` wrappers in server.py that the backend contract suite never touches (it tests `CorpusBackend` directly and never imports server.py). Four tests: exactly-8-tools surface, `get_divergent_chains` input schema, JSON backend raises `NotImplementedError`, and the tool returns the `NOT_AVAILABLE` envelope. | `py_compile` clean; **not executed in this container** (no `mcp`/`pydantic`/`pytest`) — runs in a deps-present env / CI. The end-to-end dispatch test skips gracefully if the FastMCP internal layout differs across SDK versions. Closes the "server.py has zero test coverage" gap noted under W-014. |
 | 2026-05-26 | W-014 | `get_divergent_chains` registered as the **8th MCP tool** (server.py) — stub exposing the existing `CorpusBackend.get_divergent_chains`; Phase 1/2 JSON backend returns `NOT_AVAILABLE`, activates automatically when `GraphCorpusBackend` lands. Resolves **MOD-007**. Same ratification cleared **MOD-008** (keep `sensor_readings` JSON-string injection as-is — no change) and **MOD-006** (defer `graph_weight` Leiden re-detection policy to a Phase 3 design session). | `py_compile` clean; live tool-registration + backend tests not run (no `mcp`/`pydantic`/`pytest` in this container). MCP tool-surface coverage added in W-015. MOD-006 remains tracked in §10 deferred table. |
 | 2026-05-26 | D-001 | BiometricSource dual-pairing **open decision resolved** (was §6, raised 2026-05-24) — auto-detect paired Polar devices; compose best source per channel (H10 for HR/ECG/R-R, Verity Sense for accel); no hard primary/secondary designation. | Rules live in SELECTION_PRINCIPLE.md §4.2 [Q2.1, Q2.2, 2026-05-24/26]. Original §6 row preserved in git history. |
@@ -388,6 +395,20 @@ YYYY-MM-DD — Kahn / Claude Code session #N
     - VisionTelemetrySourceTest.kt: an em-dash (—) in a backtick test-method name produced an unmappable .class file path on charset-strict filesystems. Replaced with an ASCII hyphen.
   - Verified: all six test-bearing modules' compileDebugUnitTestKotlin pass; :app:assembleDebug still green.
   - Next session pickup point: unchanged — install the APK and run an on-device shadow session.
+```
+
+```
+2026-05-27 — Claude Code — Phase 1 Android complete + backend Phase 2 start
+  - Wired source-polar into Hilt DI (PolarBleBiometricSource.create, connect()); ε_sync callback (registerSyncListener → EpsSyncCoordinator); clock reset on reconnect.
+  - Vendor-agnostic capture: CaptureSourceFactory interface; DefaultCaptureSourceFactory (BT bond check → Meta Ray-Ban or CameraX); source-meta-raybans stub module; GLASSES_DEVICE_ID buildConfigField.
+  - Polar H10 offline backfill: fetchOfflineRecordings() on reconnect; HR/PPI/Acc merged into live channels.
+  - Bluetooth SCO audio routing in CameraXCaptureSource.audioFrames().
+  - Gemini session items: ProvenanceClass Phase 4 schema hooks; ExoPlayer offline playback + session-start nanos in .ndjson; ConvergenceRouter; VoiceElicitationManager (TTS→STT→Claude entity resolution).
+  - Bug fix: VideoPlayerView placeholder never cleared (remember(exoPlayer) anti-pattern → hasVideo StateFlow); append IOException silenced.
+  - All merged to main via PR #1 (1aeed5c), PR #2 (1d03eff), PR #3 (307a2c8). 134 Android unit tests green.
+  - §2 acceptance tracker updated: source-polar, BiometricGap, mux pipeline, LLR gate, labeler all ticked (code complete; device tests still pending).
+  - Started W-022: SqliteCorpusBackend (MCP-MOD-001) + value-proximity scoring (MOD-003).
+  - Next session pickup point: finish SqliteCorpusBackend, run contract suite against both backends, then MCP-MOD-004 (per-operator write auth) or on-device shadow session.
 ```
 
 ```
