@@ -43,7 +43,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.capsconc.arcshield.debrief.model.PendingEventRecord
-import com.capsconc.arcshield.debrief.repository.DebriefRepository
 import com.capsconc.arcshield.debrief.ui.components.LambdaChip
 
 /**
@@ -58,7 +57,6 @@ import com.capsconc.arcshield.debrief.ui.components.LambdaChip
  */
 @Composable
 fun PendingEventCard(
-    record: DebriefRepository.(PendingEventRecord) -> Boolean,
     event: PendingEventRecord,
     isCompleteFn: (PendingEventRecord) -> Boolean,
     onStartAnnotation: () -> Unit,

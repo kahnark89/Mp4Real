@@ -17,7 +17,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.capsconc.arcshield.debrief.model.PendingEventRecord
-import com.capsconc.arcshield.debrief.model.ShadowActionRecord
 import com.capsconc.arcshield.debrief.repository.DebriefRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
