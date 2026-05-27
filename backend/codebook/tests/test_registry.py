@@ -122,7 +122,7 @@ class TestRegistry:
 
     def test_get_unknown_id_raises_key_error(self):
         registry = _load_registry()
-        with pytest.raises(KeyError, match="no primitive"):
+        with pytest.raises(KeyError, match="does_not_exist_v99"):
             registry.get("does_not_exist_v99")
 
     def test_get_by_failure_mode_returns_list(self):

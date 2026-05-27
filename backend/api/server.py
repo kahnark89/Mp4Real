@@ -59,9 +59,30 @@ import tomllib
 from mcp.server.fastmcp import FastMCP
 
 # ---------------------------------------------------------------------------
+# Module-level codebook registry cache — loaded once on first use
+# ---------------------------------------------------------------------------
+_primitive_registry = None
+
+
+def _get_primitive_registry():
+    """Lazy-load the Phase 1 primitive registry from the bundled YAML seed file."""
+    global _primitive_registry
+    if _primitive_registry is None:
+        try:
+            from codebook.registry import PrimitiveRegistry
+            yaml_path = Path(__file__).parent.parent / "codebook" / "primitives" / "hollowell_ppvc1.yaml"
+            _primitive_registry = PrimitiveRegistry.load(yaml_path)
+            log.info("Loaded codebook registry: %d primitives", len(_primitive_registry))
+        except Exception as exc:
+            log.warning("Failed to load primitive registry: %s", exc)
+            raise
+    return _primitive_registry
+
+# ---------------------------------------------------------------------------
 # Local imports — sys.path adjustment for running server.py directly
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # backend/ dir for codebook + ingest
 
 from arcshield.corpus.backend import (
     EventNotFoundError,
@@ -236,6 +257,115 @@ def build_server(config: dict) -> FastMCP:
         except Exception as exc:
             log.exception("list_failure_modes failed")
             return _error("list_failure_modes", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: list_primitives
+    # ------------------------------------------------------------------
+
+    @mcp.tool(description=(
+        "List all behavioral primitives in the Phase 1 hand-curated codebook. "
+        "Each primitive maps a failure_mode_tag to a sensor signature, typical action, "
+        "and expected outcome. Use before match_primitive to understand available patterns."
+    ))
+    async def list_primitives(ctx, failure_mode_tag: str | None = None) -> str:
+        try:
+            registry = _get_primitive_registry()
+            from codebook.matcher import PrimitiveMatcher  # noqa: F401 — validate import
+
+            if failure_mode_tag is not None:
+                primitives = registry.get_by_failure_mode(failure_mode_tag)
+            else:
+                primitives = registry.list_all()
+
+            results = []
+            for p in primitives:
+                results.append({
+                    "primitive_id": p.primitive_id,
+                    "failure_mode_tag": p.failure_mode_tag,
+                    "display_name": p.display_name,
+                    "typical_srk_level": p.typical_srk_level,
+                    "typical_action_type": p.typical_action_type,
+                    "typical_outcome_tag": p.typical_outcome_tag,
+                    "sensor_signature": p.sensor_signature,
+                    "key_instruments": p.key_instruments,
+                    "prior_graph_weight": p.prior_graph_weight,
+                    "source": p.source,
+                })
+
+            backend = ctx.request_context.lifespan_context["backend"]
+            return _ok(
+                "list_primitives",
+                backend.facility_id,
+                backend.corpus_depth,
+                filter_tag=failure_mode_tag,
+                primitive_count=len(results),
+                primitives=results,
+            )
+        except ValueError as exc:
+            return _error("list_primitives", "INVALID_PARAMS", str(exc))
+        except Exception as exc:
+            log.exception("list_primitives failed")
+            return _error("list_primitives", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: match_primitive
+    # ------------------------------------------------------------------
+
+    @mcp.tool(description=(
+        "Match the current sensor signature against the behavioral codebook to find "
+        "the most likely failure mode primitive. Use this when the LLR gate has fired "
+        "and you want to identify which known failure pattern this event resembles.\n\n"
+        "Args:\n"
+        "  sensor_readings_json: JSON array of {instrument_id, value, unit, confidence}\n"
+        "  top_n: number of matches to return (default 5)\n\n"
+        "Returns primitives ranked by value-proximity score. Each result includes "
+        "the primitive's typical action, outcome, and sensor signature range."
+    ))
+    async def match_primitive(ctx, sensor_readings_json: str, top_n: int = 5) -> str:
+        try:
+            raw_readings = json.loads(sensor_readings_json)
+            readings = [SensorReading.model_validate(r) for r in raw_readings]
+
+            from codebook.registry import PrimitiveRegistry  # noqa: F401
+            from codebook.matcher import PrimitiveMatcher
+
+            registry = _get_primitive_registry()
+            matcher = PrimitiveMatcher()
+            results = matcher.match(readings, registry, top_n=top_n)
+
+            serialized = []
+            for r in results:
+                p = r.primitive
+                serialized.append({
+                    "primitive_id": p.primitive_id,
+                    "failure_mode_tag": p.failure_mode_tag,
+                    "display_name": p.display_name,
+                    "score": round(r.score, 4),
+                    "matched_instruments": r.matched_instruments,
+                    "unmatched_instruments": r.unmatched_instruments,
+                    "typical_srk_level": p.typical_srk_level,
+                    "typical_action_type": p.typical_action_type,
+                    "typical_action_description": p.typical_action_description,
+                    "typical_outcome_tag": p.typical_outcome_tag,
+                    "sensor_signature": p.sensor_signature,
+                    "key_instruments": p.key_instruments,
+                    "prior_graph_weight": p.prior_graph_weight,
+                })
+
+            backend = ctx.request_context.lifespan_context["backend"]
+            return _ok(
+                "match_primitive",
+                backend.facility_id,
+                backend.corpus_depth,
+                instruments_queried=[r.instrument_id for r in readings],
+                result_count=len(serialized),
+                matches=serialized,
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            return _error("match_primitive", "INVALID_PARAMS", str(exc))
+        except Exception as exc:
+            log.exception("match_primitive failed")
+            return _error("match_primitive", "BACKEND_ERROR", str(exc))
 
     # ------------------------------------------------------------------
     # Tool: query_by_failure_mode
