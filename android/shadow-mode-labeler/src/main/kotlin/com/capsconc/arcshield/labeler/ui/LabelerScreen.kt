@@ -130,6 +130,7 @@ private fun LabelingPane(vm: LabelerViewModel) {
     val exportState     by vm.exportState.collectAsState()
     val elicitState     by vm.elicitationState.collectAsState()
     val elicitedActions by vm.elicitedActions.collectAsState()
+    val hasVideo        by vm.hasVideo.collectAsState()
     val snackbar        = remember { SnackbarHostState() }
 
     val labeled    = windows.count { it.label != Label.UNLABELED }
@@ -209,6 +210,7 @@ private fun LabelingPane(vm: LabelerViewModel) {
             item {
                 VideoPlayerView(
                     exoPlayer = vm.exoPlayer,
+                    hasVideo  = hasVideo,
                     modifier  = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                 )
             }

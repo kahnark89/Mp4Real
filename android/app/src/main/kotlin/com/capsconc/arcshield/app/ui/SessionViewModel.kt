@@ -131,7 +131,7 @@ class SessionViewModel @Inject constructor(
                 // Collect candidate windows → log + count update.
                 viewModelScope.launch {
                     session.candidateWindows.collect { window ->
-                        log.append(window)
+                        try { log.append(window) } catch (_: Exception) {}
                         _candidateCount.value += 1
                     }
                 }

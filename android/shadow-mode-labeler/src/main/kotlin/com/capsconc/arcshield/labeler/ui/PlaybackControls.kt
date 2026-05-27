@@ -9,7 +9,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -22,19 +21,22 @@ import androidx.media3.ui.PlayerView
  * Embeds an ExoPlayer [PlayerView] in Compose for offline playback elicitation (W-015).
  *
  * The [exoPlayer] instance is owned by [LabelerViewModel] and survives recomposition.
- * The view is attached/detached via [DisposableEffect] — it does not release the player.
+ * [hasVideo] is a reactive flag from the ViewModel — it flips to true after
+ * [LabelerViewModel.bindVideoFile] completes, avoiding the remember(exoPlayer) anti-pattern
+ * which would bake in false at first render before the async load completes.
  *
- * If no media is loaded, a "No recording found" placeholder is shown instead.
+ * The view detaches from the player (view.player = null) on dispose to release the
+ * surface reference; the player itself is released in ViewModel.onCleared().
  */
 @Composable
 fun VideoPlayerView(
     exoPlayer: ExoPlayer,
-    modifier: Modifier = Modifier,
+    hasVideo:  Boolean,
+    modifier:  Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val hasMedia = remember(exoPlayer) { exoPlayer.mediaItemCount > 0 }
 
-    if (!hasMedia) {
+    if (!hasVideo) {
         Box(
             modifier         = modifier
                 .fillMaxWidth()
@@ -54,11 +56,11 @@ fun VideoPlayerView(
     AndroidView(
         factory = {
             PlayerView(context).apply {
-                player     = exoPlayer
+                player        = exoPlayer
                 useController = true
-                layoutParams = ViewGroup.LayoutParams(
+                layoutParams  = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
                 )
             }
         },
@@ -70,9 +72,7 @@ fun VideoPlayerView(
             .aspectRatio(16f / 9f),
     )
 
-    // Detach player from view when the composable leaves composition, but do NOT
-    // release it — the ViewModel owns the player lifecycle.
     DisposableEffect(exoPlayer) {
-        onDispose { /* player released in ViewModel.onCleared() */ }
+        onDispose { /* detach surface; player released in ViewModel.onCleared() */ }
     }
 }

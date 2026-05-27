@@ -35,6 +35,10 @@ class LabelerViewModel(
     private val _sessionStartNanos = MutableStateFlow(0L)
     val sessionStartNanos: StateFlow<Long> = _sessionStartNanos
 
+    // True once bindVideoFile() has loaded a media item; drives VideoPlayerView guard.
+    private val _hasVideo = MutableStateFlow(false)
+    val hasVideo: StateFlow<Boolean> = _hasVideo
+
     // ---- Voice elicitation ------------------------------------------------
 
     private val voiceElicitation = VoiceElicitationManager(application, llmClient)
@@ -132,6 +136,7 @@ class LabelerViewModel(
     private fun bindVideoFile(ndjsonFile: File) {
         val filesDir = getApplication<Application>().filesDir
         val mp4 = File(filesDir, "sessions/session_${ndjsonFile.nameWithoutExtension}.mp4")
+        _hasVideo.value = mp4.exists()
         if (!mp4.exists()) return
         exoPlayer.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(mp4)))
         exoPlayer.prepare()
@@ -142,6 +147,7 @@ class LabelerViewModel(
         _allWindows.value = emptyList()
         _sessionStartNanos.value = 0L
         _elicitedActions.value = emptyMap()
+        _hasVideo.value = false
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
     }
