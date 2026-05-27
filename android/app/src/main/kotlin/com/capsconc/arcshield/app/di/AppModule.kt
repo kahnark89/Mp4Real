@@ -42,19 +42,25 @@ object AppModule {
     // ---- BiometricSource -----------------------------------------------
     // H10 via Polar BLE SDK (PMD protocol). CLAUDE.md §8.
     // POLAR_DEVICE_ID is read from local.properties at build time.
+    // Falls back to NullBiometricSource (Λ_env-only shadow mode) when:
+    //   - POLAR_DEVICE_ID is not set in local.properties
+    //   - Polar SDK or BLE init throws for any reason (BT off, missing permission, etc.)
     @Provides @Singleton
     fun provideBiometricSource(
         @ApplicationContext ctx: Context,
         @ApplicationScope scope: CoroutineScope,
     ): BiometricSource {
-        val source = PolarBleBiometricSource.create(
-            context    = ctx,
-            deviceId   = BuildConfig.POLAR_DEVICE_ID,
-            deviceType = PolarDeviceType.H10,
-            scope      = scope,
-        )
-        source.connect()
-        return source
+        if (BuildConfig.POLAR_DEVICE_ID.isBlank()) return NullBiometricSource()
+        return try {
+            PolarBleBiometricSource.create(
+                context    = ctx,
+                deviceId   = BuildConfig.POLAR_DEVICE_ID,
+                deviceType = PolarDeviceType.H10,
+                scope      = scope,
+            ).also { it.connect() }
+        } catch (_: Exception) {
+            NullBiometricSource()
+        }
     }
 
     // ---- AccelSource ---------------------------------------------------

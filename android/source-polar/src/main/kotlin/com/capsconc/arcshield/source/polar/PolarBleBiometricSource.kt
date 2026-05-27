@@ -191,7 +191,10 @@ class PolarBleBiometricSource(
     fun connect() {
         try {
             api.connectToDevice(deviceId)
-        } catch (e: PolarInvalidArgument) {
+        } catch (_: Exception) {
+            // PolarInvalidArgument (bad ID), SecurityException (BT permission denied),
+            // IllegalStateException (BT adapter off), or any other BLE-layer failure.
+            // Emit a gap so the corpus sees the condition; source stays disconnected.
             _gapChannel.trySend(BiometricGap(
                 startNanos        = SystemClock.elapsedRealtimeNanos(),
                 endNanos          = SystemClock.elapsedRealtimeNanos(),
@@ -214,7 +217,7 @@ class PolarBleBiometricSource(
                 try {
                     api.connectToDevice(deviceId)
                     break
-                } catch (_: PolarInvalidArgument) { /* retry */ }
+                } catch (_: Exception) { /* retry on any BLE-layer failure */ }
                 delayMs = minOf(delayMs * 2L, RECONNECT_MAX_DELAY_MS)
             }
         }
