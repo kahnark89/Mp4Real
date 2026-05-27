@@ -154,14 +154,20 @@ def tmpdir():
         yield d
 
 
-@pytest_asyncio.fixture(params=["json"])
+@pytest_asyncio.fixture(params=["json", "sqlite"])
 async def backend(request, tmpdir):
     """
-    Parameterized fixture. Add "sqlite", "neo4j" here when those backends exist.
-    Each test runs against every backend in this list.
+    Parameterized fixture. Each test runs against every backend in this list.
+    Add "neo4j" here when GraphCorpusBackend exists.
     """
     btype = request.param
-    kwargs = {"corpus_dir": tmpdir, "facility_id": FACILITY} if btype == "json" else {}
+    if btype == "json":
+        kwargs = {"corpus_dir": tmpdir, "facility_id": FACILITY}
+    elif btype == "sqlite":
+        import os
+        kwargs = {"db_path": os.path.join(tmpdir, "corpus.db"), "facility_id": FACILITY}
+    else:
+        kwargs = {}
     b = get_backend(btype, **kwargs)
     async with b:
         yield b
