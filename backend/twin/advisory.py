@@ -77,10 +77,12 @@ _ACTION_TYPES = {
     "ESCALATE",
 }
 
-# Confidence signal words extracted from LLM prose
-_HIGH_CONFIDENCE   = {"definitely", "clearly", "strongly", "certain", "recommend"}
+# Confidence signal words extracted from LLM prose.
+# Checked as whole words (space or word-boundary delimited) to avoid
+# substring false-positives (e.g. "certain" inside "uncertain").
+_HIGH_CONFIDENCE   = {"definitely", "clearly", "strongly", "certainly", "recommend"}
 _MEDIUM_CONFIDENCE = {"likely", "probably", "suggest", "should", "appears"}
-_LOW_CONFIDENCE    = {"possibly", "might", "may", "unclear", "uncertain", "unsure"}
+_LOW_CONFIDENCE    = {"possibly", "might", "unclear", "uncertain", "unsure"}
 
 
 # ---------------------------------------------------------------------------
@@ -262,13 +264,17 @@ class TwinAdvisory:
                 break
 
         # --- Confidence estimation ---
+        # Split into words to avoid substring false-positives
+        # (e.g. "certain" inside "uncertain").
+        import re as _re  # noqa: PLC0415
         lower = text.lower()
+        words = set(_re.split(r'\W+', lower))
         confidence: float
-        if any(w in lower for w in _HIGH_CONFIDENCE):
+        if words & _HIGH_CONFIDENCE:
             confidence = 0.85
-        elif any(w in lower for w in _MEDIUM_CONFIDENCE):
+        elif words & _MEDIUM_CONFIDENCE:
             confidence = 0.65
-        elif any(w in lower for w in _LOW_CONFIDENCE):
+        elif words & _LOW_CONFIDENCE:
             confidence = 0.40
         else:
             confidence = 0.55  # default when no signal words found
