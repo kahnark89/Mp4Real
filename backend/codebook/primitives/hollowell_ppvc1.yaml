@@ -1,0 +1,292 @@
+# Hollowell PPVC Line 1 — Phase 1 Behavioral Primitive Seed Set
+# =============================================================
+# PVC extrusion failure mode primitives, hand-curated from PPVC Line 1
+# operational knowledge. Kahn Capps, Capps Consulting Company LLC.
+#
+# sensor_signature: instrument_id → [min_expected, max_expected] during this failure mode
+# key_instruments: most diagnostic (weighted 2x in matcher)
+#
+# Physical reference ranges for PPVC Line 1:
+#   motor_amps       normal: 15-35A;  fault range: 45-80A
+#   melt_temp_f      normal: 350-380°F; high: >395°F; low: <340°F
+#   screw_rpm        normal: 18-25 RPM; surge: >30 RPM
+#   line_speed_fpm   normal: 8-12 FPM
+#   head_pressure_psi normal: 800-1200 PSI; spike: >1500 PSI
+#   output_rate_kgh  normal: 45-65 kg/h
+#   cooling_tank_f   normal: 65-75°F
+#   cooling_flow_gpm normal: 8-12 GPM
+
+primitives:
+
+  - primitive_id: material_segregation_funnel_flow_v1
+    failure_mode_tag: material_segregation_funnel_flow
+    display_name: Material Segregation / Funnel Flow
+    description: >
+      Fines segregate from compound pellets in the hopper, creating a funnel-flow
+      channel that starves the extruder screw of properly blended material.
+      Manifests as declining output rate with no thermal anomaly and reduced
+      motor amperage as screw runs partially empty.
+    typical_srk_level: RULE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - OPERATOR_MANUAL
+    sensor_signature:
+      output_rate_kgh: [30.0, 50.0]
+      motor_amps: [10.0, 22.0]
+      melt_temp_f: [345.0, 375.0]
+      screw_rpm: [18.0, 25.0]
+    key_instruments:
+      - output_rate_kgh
+      - motor_amps
+    typical_action_type: MATERIAL_INTERVENE
+    typical_action_description: >
+      Agitate or redistribute hopper contents. If persistent, purge and reload
+      with proper blend. Check hopper geometry for bridging conditions.
+    typical_outcome_tag: PROBLEM_RESOLVED
+    prior_graph_weight: 0.55
+
+  - primitive_id: die_drool_v1
+    failure_mode_tag: die_drool
+    display_name: Die Drool / Face Buildup
+    description: >
+      Degraded or low-viscosity melt accumulates at the die face between the
+      die lips and the puller. Material oxidizes, chars, and deposits on the
+      extrudate surface, causing surface contamination streaks and visual defects.
+    typical_srk_level: SKILL
+    typical_trigger_sources:
+      - OPERATOR_MANUAL
+      - GAZE_DWELL
+    sensor_signature:
+      melt_temp_f: [385.0, 405.0]
+      head_pressure_psi: [700.0, 950.0]
+      output_rate_kgh: [42.0, 60.0]
+      motor_amps: [18.0, 30.0]
+    key_instruments:
+      - melt_temp_f
+      - head_pressure_psi
+    typical_action_type: MECHANICAL_INSPECT
+    typical_action_description: >
+      Stop line briefly, wipe die face with brass brush and release agent.
+      Check die temperature zones — reduce if melt_temp_f is above 390°F.
+      Increase screw speed slightly to maintain melt pressure and reduce
+      residence time at die face.
+    typical_outcome_tag: PROBLEM_PREVENTED
+    prior_graph_weight: 0.60
+
+  - primitive_id: melt_temp_high_v1
+    failure_mode_tag: melt_temp_high
+    display_name: Melt Temperature High
+    description: >
+      One or more barrel zone temperatures exceed the upper processing limit.
+      Causes PVC degradation (HCl evolution), discoloration, and mechanical
+      property loss. Left unaddressed produces scrap product.
+    typical_srk_level: RULE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - BIOMETRIC
+    sensor_signature:
+      melt_temp_f: [395.0, 430.0]
+      motor_amps: [20.0, 38.0]
+      head_pressure_psi: [750.0, 1100.0]
+      output_rate_kgh: [40.0, 62.0]
+    key_instruments:
+      - melt_temp_f
+    typical_action_type: PARAMETER_ADJUST
+    typical_action_description: >
+      Reduce set-point on affected barrel zone(s) by 5-10°F increments.
+      Verify thermocouple reads are tracking. If melt_temp continues rising
+      despite reduced set-point, suspect heater band runaway — escalate.
+    typical_outcome_tag: PROBLEM_PREVENTED
+    prior_graph_weight: 0.65
+
+  - primitive_id: melt_temp_low_v1
+    failure_mode_tag: melt_temp_low
+    display_name: Melt Temperature Low
+    description: >
+      Barrel zone temperature below the minimum processing temperature for PVC.
+      Under-plasticized melt causes high head pressure, high motor amperage,
+      potential screw overload, and unmelted particles in extrudate.
+    typical_srk_level: RULE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - BIOMETRIC
+    sensor_signature:
+      melt_temp_f: [310.0, 345.0]
+      motor_amps: [28.0, 55.0]
+      head_pressure_psi: [1100.0, 1600.0]
+      output_rate_kgh: [35.0, 52.0]
+    key_instruments:
+      - melt_temp_f
+      - motor_amps
+    typical_action_type: PARAMETER_ADJUST
+    typical_action_description: >
+      Increase set-point on affected barrel zone(s) by 5-10°F. Reduce screw speed
+      to decrease throughput and allow more residence time for plasticization.
+      Wait for thermocouple readings to stabilize before returning to normal speed.
+    typical_outcome_tag: PROBLEM_PREVENTED
+    prior_graph_weight: 0.62
+
+  - primitive_id: motor_amp_spike_v1
+    failure_mode_tag: motor_amp_spike
+    display_name: Motor Amp Spike
+    description: >
+      Main drive motor current surges above normal operating range, indicating
+      screw obstruction (unmelted lumps, contamination, metal fragment) or
+      sudden viscosity increase from cold material or processing upset.
+    typical_srk_level: KNOWLEDGE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - BIOMETRIC
+    sensor_signature:
+      motor_amps: [45.0, 80.0]
+      head_pressure_psi: [1200.0, 1800.0]
+      melt_temp_f: [340.0, 380.0]
+      screw_rpm: [15.0, 25.0]
+    key_instruments:
+      - motor_amps
+      - head_pressure_psi
+    typical_action_type: PROCESS_HALT
+    typical_action_description: >
+      Reduce screw speed immediately. If amps remain elevated above 60A, halt
+      screw rotation and investigate. Check for metal contamination in hopper.
+      Do not restart without inspecting screw/barrel for damage.
+    typical_outcome_tag: PROBLEM_MITIGATED
+    prior_graph_weight: 0.70
+
+  - primitive_id: screw_speed_surge_v1
+    failure_mode_tag: screw_speed_surge
+    display_name: Screw Speed Surge
+    description: >
+      Unexpected RPM increase on the extruder screw indicating feed slip,
+      drive overshoot, or controller instability. Sudden surge can cause
+      dimensional variation and pressure spikes.
+    typical_srk_level: RULE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - OPERATOR_MANUAL
+    sensor_signature:
+      screw_rpm: [30.0, 45.0]
+      output_rate_kgh: [55.0, 80.0]
+      head_pressure_psi: [900.0, 1400.0]
+      motor_amps: [22.0, 42.0]
+    key_instruments:
+      - screw_rpm
+      - output_rate_kgh
+    typical_action_type: PARAMETER_ADJUST
+    typical_action_description: >
+      Manually override screw speed to target RPM. Check drive controller
+      for setpoint drift. If surge pattern repeats, inspect drive feedback
+      sensor (tachometer) for noise or loose coupling.
+    typical_outcome_tag: PROBLEM_PREVENTED
+    prior_graph_weight: 0.55
+
+  - primitive_id: line_speed_instability_v1
+    failure_mode_tag: line_speed_instability
+    display_name: Line Speed Instability
+    description: >
+      Haul-off speed varies by more than ±3 FPM from setpoint, causing
+      extrudate wall thickness deviation and dimensional non-conformance.
+      Often coupled with output rate variation from the extruder.
+    typical_srk_level: RULE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - OPERATOR_MANUAL
+    sensor_signature:
+      line_speed_fpm: [4.0, 7.0]
+      output_rate_kgh: [35.0, 55.0]
+      motor_amps: [15.0, 32.0]
+      head_pressure_psi: [800.0, 1200.0]
+    key_instruments:
+      - line_speed_fpm
+    typical_action_type: PARAMETER_ADJUST
+    typical_action_description: >
+      Check haul-off drive belt tension and drive coupling. Verify PID gains
+      on haul-off speed controller. Adjust extruder screw speed to match
+      haul-off demand. Measure wall thickness at deviation point.
+    typical_outcome_tag: PROBLEM_MITIGATED
+    prior_graph_weight: 0.52
+
+  - primitive_id: cooling_insufficiency_v1
+    failure_mode_tag: cooling_insufficiency
+    display_name: Cooling Insufficiency
+    description: >
+      Cooling tank water temperature or flow rate insufficient to solidify
+      extrudate before the haul-off. Soft product deforms in haul-off,
+      causing oval or collapsed profiles. Often appears as line speed ceiling.
+    typical_srk_level: RULE
+    typical_trigger_sources:
+      - OPERATOR_MANUAL
+      - ANOMALY_DETECT
+    sensor_signature:
+      cooling_tank_f: [78.0, 95.0]
+      line_speed_fpm: [5.0, 9.0]
+      output_rate_kgh: [40.0, 58.0]
+      melt_temp_f: [355.0, 385.0]
+    key_instruments:
+      - cooling_tank_f
+    typical_action_type: PARAMETER_ADJUST
+    typical_action_description: >
+      Reduce line speed until product hardens properly in haul-off. Check
+      cooling water supply valve and chiller setpoint. Verify cooling tank
+      flow rate (min 8 GPM for current throughput). If chiller capacity is
+      limited, reduce extruder output rate.
+    typical_outcome_tag: PROBLEM_MITIGATED
+    prior_graph_weight: 0.58
+
+  - primitive_id: pressure_spike_head_v1
+    failure_mode_tag: pressure_spike_head
+    display_name: Head Pressure Spike
+    description: >
+      Sudden increase in die head pressure indicating partial blockage
+      (gel particle, unmelted lump, foreign material at screen pack or die),
+      or a sudden viscosity shift from cold or poorly mixed compound.
+    typical_srk_level: KNOWLEDGE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - BIOMETRIC
+    sensor_signature:
+      head_pressure_psi: [1500.0, 2200.0]
+      motor_amps: [30.0, 60.0]
+      melt_temp_f: [345.0, 385.0]
+      output_rate_kgh: [30.0, 52.0]
+    key_instruments:
+      - head_pressure_psi
+      - motor_amps
+    typical_action_type: MECHANICAL_INSPECT
+    typical_action_description: >
+      Reduce screw speed immediately to relieve pressure. If pressure stays
+      above 1600 PSI, halt extruder and inspect screen pack for blockage.
+      Replace screen pack if plugged. If screen is clear, suspect partial die
+      blockage — requires die removal and cleaning.
+    typical_outcome_tag: PROBLEM_MITIGATED
+    prior_graph_weight: 0.68
+
+  - primitive_id: output_rate_drop_v1
+    failure_mode_tag: output_rate_drop
+    display_name: Output Rate Drop
+    description: >
+      Extruder output falls below target kg/h without clear single-cause
+      indicator. Multi-cause diagnostic: could indicate hopper starvation,
+      feed throat bridging, worn screw, partial screen pack blockage,
+      or degraded compound with elevated melt viscosity.
+    typical_srk_level: KNOWLEDGE
+    typical_trigger_sources:
+      - ANOMALY_DETECT
+      - OPERATOR_MANUAL
+    sensor_signature:
+      output_rate_kgh: [25.0, 42.0]
+      motor_amps: [12.0, 28.0]
+      screw_rpm: [16.0, 25.0]
+      head_pressure_psi: [750.0, 1100.0]
+    key_instruments:
+      - output_rate_kgh
+      - screw_rpm
+    typical_action_type: MONITOR_HOLD
+    typical_action_description: >
+      Cross-reference motor_amps: low amps + low output = feed starvation;
+      normal amps + low output = possible partial blockage or worn screw.
+      Increase sample rate on all instruments. If starvation suspected,
+      check hopper level and material flow. If blockage suspected, inspect
+      screen pack pressure drop (cross-check head_pressure vs. back-pressure).
+    typical_outcome_tag: PROBLEM_MITIGATED
+    prior_graph_weight: 0.45
