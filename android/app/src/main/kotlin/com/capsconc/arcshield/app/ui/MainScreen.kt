@@ -79,7 +79,7 @@ fun MainScreen(
                     enabled = false,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Building I-frame baseline…")
+                    Text("Building I-frame baseline… (~90 s)")
                 }
 
                 is SessionViewModel.SessionState.Recording -> Button(
