@@ -5,6 +5,8 @@ import com.capsconc.arcshield.schema.biometric.RrSample
 import kotlin.math.max
 import kotlin.math.sqrt
 
+private const val MIN_NL_RR = NonlinearHrv.MIN_RR_COUNT
+
 /**
  * Rolling biometric statistics over a sliding time window, used to compute
  * Λ_bio components in the LLR gate (CLAUDE.md §4.1).
@@ -33,6 +35,11 @@ internal class RollingBioStats(val windowMs: Long = 5L * 60L * 1_000L) {
         val rmssdMs: Float,
         val hasHr: Boolean,
         val hasRr: Boolean,
+        // Nonlinear HRV — populated when rrBuffer.size >= MIN_NL_RR (~20 beats, ~15-20s)
+        val sd1Ms: Float = 0f,
+        val sd2Ms: Float = 0f,
+        val sampEn: Float = Float.NaN,
+        val hasNonlinearHrv: Boolean = false,
     )
 
     fun updateHr(sample: HrSample): BioSnapshot {
@@ -81,12 +88,23 @@ internal class RollingBioStats(val windowMs: Long = 5L * 60L * 1_000L) {
             sqrt(sumSqDiff / (rrBuffer.size - 1)).toFloat()
         } else 0f
 
+        // Nonlinear HRV — only when enough R-R intervals are available
+        val hasNl = rrBuffer.size >= MIN_NL_RR
+        val rrArray = if (hasNl) FloatArray(rrBuffer.size) { rrBuffer[it].rrMs.toFloat() } else null
+        val sd1  = rrArray?.let { NonlinearHrv.sd1(it) }  ?: 0f
+        val sd2  = rrArray?.let { NonlinearHrv.sd2(it) }  ?: 0f
+        val sampEn = rrArray?.let { NonlinearHrv.sampleEntropy(it) } ?: Float.NaN
+
         return BioSnapshot(
-            hrMeanBpm     = hrMean,
-            hrVarianceBpm = hrVariance,
-            rmssdMs       = rmssdMs,
-            hasHr         = hasHr,
-            hasRr         = hasRr,
+            hrMeanBpm        = hrMean,
+            hrVarianceBpm    = hrVariance,
+            rmssdMs          = rmssdMs,
+            hasHr            = hasHr,
+            hasRr            = hasRr,
+            sd1Ms            = sd1,
+            sd2Ms            = sd2,
+            sampEn           = sampEn,
+            hasNonlinearHrv  = hasNl,
         )
     }
 

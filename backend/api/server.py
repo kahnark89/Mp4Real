@@ -50,6 +50,7 @@ import json
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -58,14 +59,36 @@ import tomllib
 from mcp.server.fastmcp import FastMCP
 
 # ---------------------------------------------------------------------------
+# Module-level codebook registry cache — loaded once on first use
+# ---------------------------------------------------------------------------
+_primitive_registry = None
+
+
+def _get_primitive_registry():
+    """Lazy-load the Phase 1 primitive registry from the bundled YAML seed file."""
+    global _primitive_registry
+    if _primitive_registry is None:
+        try:
+            from codebook.registry import PrimitiveRegistry
+            yaml_path = Path(__file__).parent.parent / "codebook" / "primitives" / "hollowell_ppvc1.yaml"
+            _primitive_registry = PrimitiveRegistry.load(yaml_path)
+            log.info("Loaded codebook registry: %d primitives", len(_primitive_registry))
+        except Exception as exc:
+            log.warning("Failed to load primitive registry: %s", exc)
+            raise
+    return _primitive_registry
+
+# ---------------------------------------------------------------------------
 # Local imports — sys.path adjustment for running server.py directly
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # backend/ dir for codebook + ingest
 
 from arcshield.corpus.backend import (
     EventNotFoundError,
     SchemaValidationError,
     WeightUpdate,
+    RPhysUpdate,
 )
 from arcshield.corpus.backends import get_backend
 from arcshield.schema import (
@@ -74,6 +97,8 @@ from arcshield.schema import (
     FailureModeQuery,
     SensorReading,
     SRKLevel,
+    RPhysRecord,
+    RPhysStatus,
 )
 
 # ---------------------------------------------------------------------------
@@ -153,13 +178,35 @@ def build_server(config: dict) -> FastMCP:
     across all tool calls via closure — no global state.
     """
 
-    facility_id  = config["server"]["facility_id"]
-    allow_writes = config["server"].get("allow_writes", False)
-    backend_type = config["backend"]["type"]
+    facility_id    = config["server"]["facility_id"]
+    allow_writes   = config["server"].get("allow_writes", False)
+    write_operators: list[str] = config.get("auth", {}).get("write_operators", [])
+    ogc_alpha: float = config.get("ogc", {}).get("alpha", 0.1)
+    backend_type   = config["backend"]["type"]
     backend_kwargs = {
         **config["backend"].get(backend_type, {}),
         "facility_id": facility_id,
+        "ogc_alpha"  : ogc_alpha,
     }
+
+    # ------------------------------------------------------------------
+    # Auth helper — checked before any write reaches the backend
+    # ------------------------------------------------------------------
+
+    def _check_write_auth(operator: str, tool_name: str) -> str | None:
+        """
+        Return an AUTH_FAILED error string if operator is not in the
+        write_operators allowlist, or None if auth passes.
+        Empty allowlist = no restriction (allow_writes still gates first).
+        """
+        if write_operators and operator not in write_operators:
+            return _error(
+                tool_name,
+                "AUTH_FAILED",
+                f"operator_id '{operator}' is not in the write_operators allowlist. "
+                "Contact the facility administrator to be added.",
+            )
+        return None
 
     # ------------------------------------------------------------------
     # Lifespan: open backend once, close on shutdown
@@ -210,6 +257,115 @@ def build_server(config: dict) -> FastMCP:
         except Exception as exc:
             log.exception("list_failure_modes failed")
             return _error("list_failure_modes", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: list_primitives
+    # ------------------------------------------------------------------
+
+    @mcp.tool(description=(
+        "List all behavioral primitives in the Phase 1 hand-curated codebook. "
+        "Each primitive maps a failure_mode_tag to a sensor signature, typical action, "
+        "and expected outcome. Use before match_primitive to understand available patterns."
+    ))
+    async def list_primitives(ctx, failure_mode_tag: str | None = None) -> str:
+        try:
+            registry = _get_primitive_registry()
+            from codebook.matcher import PrimitiveMatcher  # noqa: F401 — validate import
+
+            if failure_mode_tag is not None:
+                primitives = registry.get_by_failure_mode(failure_mode_tag)
+            else:
+                primitives = registry.list_all()
+
+            results = []
+            for p in primitives:
+                results.append({
+                    "primitive_id": p.primitive_id,
+                    "failure_mode_tag": p.failure_mode_tag,
+                    "display_name": p.display_name,
+                    "typical_srk_level": p.typical_srk_level,
+                    "typical_action_type": p.typical_action_type,
+                    "typical_outcome_tag": p.typical_outcome_tag,
+                    "sensor_signature": p.sensor_signature,
+                    "key_instruments": p.key_instruments,
+                    "prior_graph_weight": p.prior_graph_weight,
+                    "source": p.source,
+                })
+
+            backend = ctx.request_context.lifespan_context["backend"]
+            return _ok(
+                "list_primitives",
+                backend.facility_id,
+                backend.corpus_depth,
+                filter_tag=failure_mode_tag,
+                primitive_count=len(results),
+                primitives=results,
+            )
+        except ValueError as exc:
+            return _error("list_primitives", "INVALID_PARAMS", str(exc))
+        except Exception as exc:
+            log.exception("list_primitives failed")
+            return _error("list_primitives", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: match_primitive
+    # ------------------------------------------------------------------
+
+    @mcp.tool(description=(
+        "Match the current sensor signature against the behavioral codebook to find "
+        "the most likely failure mode primitive. Use this when the LLR gate has fired "
+        "and you want to identify which known failure pattern this event resembles.\n\n"
+        "Args:\n"
+        "  sensor_readings_json: JSON array of {instrument_id, value, unit, confidence}\n"
+        "  top_n: number of matches to return (default 5)\n\n"
+        "Returns primitives ranked by value-proximity score. Each result includes "
+        "the primitive's typical action, outcome, and sensor signature range."
+    ))
+    async def match_primitive(ctx, sensor_readings_json: str, top_n: int = 5) -> str:
+        try:
+            raw_readings = json.loads(sensor_readings_json)
+            readings = [SensorReading.model_validate(r) for r in raw_readings]
+
+            from codebook.registry import PrimitiveRegistry  # noqa: F401
+            from codebook.matcher import PrimitiveMatcher
+
+            registry = _get_primitive_registry()
+            matcher = PrimitiveMatcher()
+            results = matcher.match(readings, registry, top_n=top_n)
+
+            serialized = []
+            for r in results:
+                p = r.primitive
+                serialized.append({
+                    "primitive_id": p.primitive_id,
+                    "failure_mode_tag": p.failure_mode_tag,
+                    "display_name": p.display_name,
+                    "score": round(r.score, 4),
+                    "matched_instruments": r.matched_instruments,
+                    "unmatched_instruments": r.unmatched_instruments,
+                    "typical_srk_level": p.typical_srk_level,
+                    "typical_action_type": p.typical_action_type,
+                    "typical_action_description": p.typical_action_description,
+                    "typical_outcome_tag": p.typical_outcome_tag,
+                    "sensor_signature": p.sensor_signature,
+                    "key_instruments": p.key_instruments,
+                    "prior_graph_weight": p.prior_graph_weight,
+                })
+
+            backend = ctx.request_context.lifespan_context["backend"]
+            return _ok(
+                "match_primitive",
+                backend.facility_id,
+                backend.corpus_depth,
+                instruments_queried=[r.instrument_id for r in readings],
+                result_count=len(serialized),
+                matches=serialized,
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            return _error("match_primitive", "INVALID_PARAMS", str(exc))
+        except Exception as exc:
+            log.exception("match_primitive failed")
+            return _error("match_primitive", "BACKEND_ERROR", str(exc))
 
     # ------------------------------------------------------------------
     # Tool: query_by_failure_mode
@@ -279,10 +435,9 @@ def build_server(config: dict) -> FastMCP:
             "  top_n: max results (1–50, default 5)\n"
             "  min_graph_weight: confidence floor 0.0–1.0 (default 0.0)\n\n"
             "IMPLEMENTATION NOTE (server.py:query_by_cause_signature): "
-            "Phase 1 similarity uses instrument-id coverage + graph_weight. "
-            "Phase 2 adds value-proximity weighting. "
-            "Phase 3 replaces with embedding-based ANN search. "
-            "Update this docstring when the similarity algorithm changes."
+            "Current similarity (MOD-003): value-proximity per shared instrument "
+            "= 1/(1+|q_val−s_val|), averaged, graph_weight as 10%% tiebreaker. "
+            "Phase 3 replaces with embedding-based ANN search."
         )
     )
     async def query_by_cause_signature(
@@ -399,14 +554,18 @@ def build_server(config: dict) -> FastMCP:
             "  - event_id must be globally unique\n"
             "  - timestamp_start must precede timestamp_end\n"
             "  - All required schema fields must be present\n\n"
+            "Per-operator auth: when config.toml [auth] write_operators is non-empty, "
+            "event.operator_id must appear in that list or AUTH_FAILED is returned.\n\n"
             "IMPLEMENTATION NOTE (server.py:ingest_event): "
-            "Phase 2 add per-operator signed token auth before accepting writes. "
-            "Phase 2 add escalation_delta coherence check "
-            "(delta == cause.escalation_state - result.escalation_state_at_result). "
-            "See config.toml [auth] section."
+            "Phase 3 upgrade: replace allowlist lookup with signed-token verification "
+            "once MCP header support lands upstream."
         )
     )
-    async def ingest_event(ctx, event_json: str) -> str:
+    async def ingest_event(
+        ctx,
+        event_json: str,
+        r_phys_deadline_hours: float | None = None,
+    ) -> str:
         if not allow_writes:
             return _error(
                 "ingest_event",
@@ -417,6 +576,19 @@ def build_server(config: dict) -> FastMCP:
         try:
             raw = json.loads(event_json)
             event = CIAEREvent.model_validate(raw)
+            if auth_err := _check_write_auth(event.operator_id, "ingest_event"):
+                return auth_err
+            # Inject pending R_phys deadline if caller provided one and event doesn't have one
+            if r_phys_deadline_hours is not None and event.result.r_phys is None:
+                deadline = datetime.now(timezone.utc) + timedelta(hours=r_phys_deadline_hours)
+                event = event.model_copy(update={
+                    "result": event.result.model_copy(update={
+                        "r_phys": RPhysRecord(
+                            status   = RPhysStatus.PENDING,
+                            deadline = deadline,
+                        )
+                    })
+                })
             event_id = await backend.ingest_event(event)
             log.info("Ingested event %s (failure_mode=%s)", event_id, event.intuition.failure_mode_tag)
             return _ok(
@@ -452,8 +624,9 @@ def build_server(config: dict) -> FastMCP:
             "  new_weight: float in [0.0, 1.0]\n"
             "  rationale: plain-text explanation of why the weight changed (required)\n"
             "  updated_by: operator_id hash or 'SYSTEM'\n\n"
+            "Per-operator auth: when config.toml [auth] write_operators is non-empty, "
+            "updated_by must appear in that list or AUTH_FAILED is returned.\n\n"
             "IMPLEMENTATION NOTE (server.py:update_graph_weight): "
-            "Phase 2 restrict updated_by to the write_operators allowlist in config.toml. "
             "Phase 3 trigger Leiden community re-detection when a high-centrality "
             "event's weight changes by > 0.2."
         )
@@ -471,6 +644,8 @@ def build_server(config: dict) -> FastMCP:
                 "WRITE_DISABLED",
                 "This server is configured read-only (allow_writes=false in config.toml).",
             )
+        if auth_err := _check_write_auth(updated_by, "update_graph_weight"):
+            return auth_err
         backend = ctx.request_context.lifespan_context["backend"]
         try:
             update = WeightUpdate(
@@ -496,6 +671,144 @@ def build_server(config: dict) -> FastMCP:
         except Exception as exc:
             log.exception("update_graph_weight failed")
             return _error("update_graph_weight", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: record_r_phys (OGC write — guarded by allow_writes)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Record physical reward R_phys for an event and fire the OGC confidence "
+            "update rule (CLAUDE.md §6). This is the ONLY legitimate path that mutates "
+            "graph_weight based on physical outcome.\n\n"
+            "OGC rule: δ = R_phys − graph_weight; "
+            "new_weight = graph_weight + α·δ·[a_t = â_t]\n"
+            "where [a_t = â_t] = 1 when advised_action_type is None (Phase 1/2) or "
+            "operator followed Twin advice.\n\n"
+            "R_phys is architecturally isolated from the compliance scalar — they are "
+            "read from separate fields and never share a code path.\n\n"
+            "Args:\n"
+            "  event_id: UUID of the event (must have r_phys.status=PENDING)\n"
+            "  value: physical reward in [0.0, 1.0] — 1.0=fully resolved, 0.0=worsened\n"
+            "  source: where R_phys came from (e.g. 'manual_qc', 'plc_motor_amps')\n"
+            "  updated_by: operator_id hash or 'SYSTEM'\n\n"
+            "Per-operator auth: updated_by must be in write_operators allowlist if set."
+        )
+    )
+    async def record_r_phys(
+        ctx,
+        event_id   : str,
+        value      : float,
+        source     : str,
+        updated_by : str = "SYSTEM",
+    ) -> str:
+        if not allow_writes:
+            return _error(
+                "record_r_phys", "WRITE_DISABLED",
+                "This server is configured read-only (allow_writes=false in config.toml).",
+            )
+        if auth_err := _check_write_auth(updated_by, "record_r_phys"):
+            return auth_err
+        backend = ctx.request_context.lifespan_context["backend"]
+        try:
+            upd = RPhysUpdate(
+                event_id   = UUID(event_id),
+                value      = value,
+                source     = source,
+                updated_by = updated_by,
+            )
+            updated = await backend.record_r_phys(upd)
+            log.info("R_phys recorded: event=%s value=%.3f source=%s", event_id, value, source)
+            return _ok(
+                "record_r_phys",
+                backend.facility_id,
+                backend.corpus_depth,
+                event_id         = event_id,
+                r_phys_value     = value,
+                source           = source,
+                new_graph_weight = updated.result.graph_weight,
+                r_phys_status    = updated.result.r_phys.status.value if updated.result.r_phys else None,
+            )
+        except ValueError as exc:
+            return _error("record_r_phys", "INVALID_PARAMS", str(exc))
+        except EventNotFoundError as exc:
+            return _error("record_r_phys", "NOT_FOUND", str(exc))
+        except SchemaValidationError as exc:
+            return _error("record_r_phys", "SCHEMA_VALIDATION_ERROR", str(exc))
+        except Exception as exc:
+            log.exception("record_r_phys failed")
+            return _error("record_r_phys", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: expire_r_phys_deadlines (OGC admin — guarded by allow_writes)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Scan for events with r_phys.status=PENDING whose deadline has passed "
+            "and mark them INDETERMINATE. These events will NOT update graph_weight — "
+            "they are frozen at their current confidence and flagged for human review.\n\n"
+            "Call this periodically (e.g. at shift start) to close out stale pending "
+            "R_phys entries. Returns the list of expired event IDs.\n\n"
+            "Requires allow_writes=true. Per-operator auth applies to updated_by."
+        )
+    )
+    async def expire_r_phys_deadlines(
+        ctx,
+        updated_by: str = "SYSTEM",
+    ) -> str:
+        if not allow_writes:
+            return _error(
+                "expire_r_phys_deadlines", "WRITE_DISABLED",
+                "This server is configured read-only (allow_writes=false in config.toml).",
+            )
+        if auth_err := _check_write_auth(updated_by, "expire_r_phys_deadlines"):
+            return auth_err
+        backend = ctx.request_context.lifespan_context["backend"]
+        try:
+            expired_ids = await backend.expire_r_phys_deadlines()
+            log.info("R_phys expiry: %d events marked INDETERMINATE", len(expired_ids))
+            return _ok(
+                "expire_r_phys_deadlines",
+                backend.facility_id,
+                backend.corpus_depth,
+                expired_count = len(expired_ids),
+                expired_ids   = [str(eid) for eid in expired_ids],
+            )
+        except Exception as exc:
+            log.exception("expire_r_phys_deadlines failed")
+            return _error("expire_r_phys_deadlines", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: list_pending_r_phys (read)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "List events waiting for physical reward R_phys to arrive, ordered by "
+            "deadline ascending (soonest first). Use to drive a monitoring dashboard "
+            "or to know which events need manual QC entry next.\n\n"
+            "Args:\n"
+            "  max_results: upper bound on results returned (default 50)"
+        )
+    )
+    async def list_pending_r_phys(
+        ctx,
+        max_results: int = 50,
+    ) -> str:
+        backend = ctx.request_context.lifespan_context["backend"]
+        try:
+            events = await backend.list_pending_r_phys(max_results=max_results)
+            return _ok(
+                "list_pending_r_phys",
+                backend.facility_id,
+                backend.corpus_depth,
+                pending_count = len(events),
+                events        = [_serialize_event(e) for e in events],
+            )
+        except Exception as exc:
+            log.exception("list_pending_r_phys failed")
+            return _error("list_pending_r_phys", "BACKEND_ERROR", str(exc))
 
     # ------------------------------------------------------------------
     # Tool: get_divergent_chains (graph traversal — Phase 3+)

@@ -32,6 +32,7 @@ from arcshield.corpus.backend import (
     SchemaValidationError,
     BackendUnavailableError,
     WeightUpdate,
+    RPhysUpdate,
 )
 from arcshield.schema import (
     CIAEREvent,
@@ -39,6 +40,9 @@ from arcshield.schema import (
     FailureModeQuery,
     FailureModeSummary,
     OutcomeTag,
+    PredictionMatch,
+    RPhysRecord,
+    RPhysStatus,
 )
 
 
@@ -51,9 +55,10 @@ class JsonCorpusBackend(CorpusBackend):
     blocking the event loop.
     """
 
-    def __init__(self, corpus_dir: str | Path, facility_id: str) -> None:
+    def __init__(self, corpus_dir: str | Path, facility_id: str, ogc_alpha: float = 0.1) -> None:
         self._corpus_dir   = Path(corpus_dir)
         self._facility_id  = facility_id
+        self._ogc_alpha    = ogc_alpha
         self._events_dir   = self._corpus_dir / "events"
         self._audit_dir    = self._corpus_dir / "audit"
 
@@ -199,6 +204,16 @@ class JsonCorpusBackend(CorpusBackend):
                 f"result.escalation_state_at_result "
                 f"({event.result.escalation_state_at_result}) = {expected_delta}"
             )
+
+        # INDETERMINATE events must have a pending R_phys deadline (CLAUDE.md §2.4)
+        if event.effect.prediction_match == PredictionMatch.INDETERMINATE:
+            rp = event.result.r_phys
+            if rp is None or rp.status != RPhysStatus.PENDING:
+                raise SchemaValidationError(
+                    "Events with prediction_match=INDETERMINATE must have "
+                    "result.r_phys.status=PENDING (deadline set). "
+                    "Either confirm/disconfirm on own telemetry or queue a deferred R_phys."
+                )
 
         try:
             await asyncio.to_thread(self._save_event, event)
@@ -365,6 +380,114 @@ class JsonCorpusBackend(CorpusBackend):
 
         self._failure_mode_cache = summaries
         return summaries
+
+    # ------------------------------------------------------------------
+    # OGC — Outcome-Grounded Confidence (CLAUDE.md §6)
+    # ------------------------------------------------------------------
+
+    async def record_r_phys(self, update: RPhysUpdate) -> CIAEREvent:
+        self._assert_open()
+
+        if not (0.0 <= update.value <= 1.0):
+            raise ValueError(f"R_phys value must be in [0.0, 1.0], got {update.value}")
+
+        def _do_record() -> CIAEREvent:
+            event = self._load_event(update.event_id)
+            rp = event.result.r_phys
+            if rp is None:
+                raise SchemaValidationError(
+                    f"Event {update.event_id} has no r_phys record. "
+                    "Set r_phys at ingest time (r_phys_deadline_hours) before recording arrival."
+                )
+            if rp.status != RPhysStatus.PENDING:
+                raise SchemaValidationError(
+                    f"Event {update.event_id} r_phys.status is '{rp.status.value}', "
+                    "expected PENDING. Cannot record R_phys twice or after expiry."
+                )
+
+            # OGC update rule (CLAUDE.md §6.1) — reward and compliance are separate paths
+            α = self._ogc_alpha
+            advised = event.result.advised_action_type
+            compliance = 1 if advised is None else (1 if event.action.action_type == advised else 0)
+            δ = update.value - event.result.graph_weight
+            new_weight = max(0.0, min(1.0, event.result.graph_weight + α * δ * compliance))
+
+            now = datetime.now(timezone.utc)
+            updated_r_phys = rp.model_copy(update={
+                "status"    : RPhysStatus.ARRIVED,
+                "arrived_at": now,
+                "value"     : update.value,
+                "source"    : update.source,
+            })
+            updated = event.model_copy(update={
+                "result": event.result.model_copy(update={
+                    "graph_weight": new_weight,
+                    "r_phys"      : updated_r_phys,
+                })
+            })
+            self._save_event(updated)
+            self._append_audit_entry(WeightUpdate(
+                event_id   = update.event_id,
+                new_weight = new_weight,
+                rationale  = f"OGC_R_PHYS: {update.source} (value={update.value:.4f}, "
+                             f"delta={δ:.4f}, compliance={compliance}, alpha={α})",
+                updated_by = update.updated_by,
+            ))
+            return updated
+
+        updated_event = await asyncio.to_thread(_do_record)
+        eid = str(update.event_id)
+        if eid in self._index:
+            self._index[eid]["graph_weight"] = updated_event.result.graph_weight
+        self._failure_mode_cache = None
+        return updated_event
+
+    async def expire_r_phys_deadlines(self) -> list[UUID]:
+        self._assert_open()
+        now = datetime.now(timezone.utc)
+
+        def _do_expire() -> list[UUID]:
+            expired: list[UUID] = []
+            for eid_str in list(self._index.keys()):
+                try:
+                    event = self._load_event(UUID(eid_str))
+                except EventNotFoundError:
+                    continue
+                rp = event.result.r_phys
+                if rp is None or rp.status != RPhysStatus.PENDING:
+                    continue
+                if rp.deadline is None or rp.deadline > now:
+                    continue
+                updated = event.model_copy(update={
+                    "result": event.result.model_copy(update={
+                        "r_phys": rp.model_copy(update={"status": RPhysStatus.INDETERMINATE})
+                    })
+                })
+                self._save_event(updated)
+                expired.append(event.event_id)
+            return expired
+
+        return await asyncio.to_thread(_do_expire)
+
+    async def list_pending_r_phys(self, max_results: int = 50) -> list[CIAEREvent]:
+        self._assert_open()
+
+        def _do_list() -> list[CIAEREvent]:
+            pending: list[CIAEREvent] = []
+            for eid_str in self._index.keys():
+                try:
+                    event = self._load_event(UUID(eid_str))
+                except EventNotFoundError:
+                    continue
+                rp = event.result.r_phys
+                if rp is not None and rp.status == RPhysStatus.PENDING:
+                    pending.append(event)
+            pending.sort(key=lambda e: (
+                e.result.r_phys.deadline or datetime.max.replace(tzinfo=timezone.utc)
+            ))
+            return pending[:max_results]
+
+        return await asyncio.to_thread(_do_list)
 
     # ------------------------------------------------------------------
     # Diagnostics

@@ -1,15 +1,21 @@
+/*
+ * Intellectual Property and Trademark Notice
+ *
+ * mp4Real™, ArcShield™, CIAER™, and CIAER+™ are trademarks of Capps Consulting
+ * Company LLC. The multi-track cyber-physical capture architecture, the
+ * application of log-likelihood ratio (LLR) gating to multimodal industrial
+ * decision events, and the behavioral codebook discretization methods described
+ * in this document are the proprietary intellectual property of Kahn Capps and
+ * Capps Consulting Company LLC. Unauthorized commercial use, reproduction, or
+ * implementation of the mp4Real™ container architecture or the CIAER™ and CIAER+™
+ * schemas without explicit licensing is prohibited. All rights reserved.
+ */
 package com.capsconc.arcshield.app.di
 
 import android.content.Context
-import com.capsconc.arcshield.app.BuildConfig
+import com.capsconc.arcshield.app.settings.SettingsRepository
 import com.capsconc.arcshield.llm.claude.ClaudeVisionClient
-import com.capsconc.arcshield.schema.biometric.BiometricSource
-import com.capsconc.arcshield.schema.imu.AccelSource
 import com.capsconc.arcshield.schema.llm.LlmClient
-import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
-import com.capsconc.arcshield.source.imu.PhoneImuAccelSource
-import com.capsconc.arcshield.vision.HollowellChannelPresets
-import com.capsconc.arcshield.vision.VisionTelemetrySource
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -21,8 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import javax.inject.Qualifier
 import javax.inject.Singleton
 
-// Marks the application-lifetime CoroutineScope used by long-running sources
-// (e.g. VisionTelemetrySource polling).
+// Marks the application-lifetime CoroutineScope used by long-running sources.
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class ApplicationScope
@@ -35,37 +40,14 @@ object AppModule {
     fun provideApplicationScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // ---- BiometricSource -----------------------------------------------
-    // Phase 1 Λ_env-only shadow sessions run without a Polar device, so the
-    // biometric channel is a no-op source (Λ_bio = 0). To enable H10 / Verity
-    // Sense capture, add `implementation(project(":source-polar"))` back to the
-    // app module and bind PolarBleBiometricSource here instead.
     @Provides @Singleton
-    fun provideBiometricSource(): BiometricSource = NullBiometricSource()
+    fun provideSettingsRepository(@ApplicationContext ctx: Context): SettingsRepository =
+        SettingsRepository(ctx)
 
-    // ---- AccelSource ---------------------------------------------------
-    // Phone IMU (SensorManager) drives Λ_accel and the accel track. This is the
-    // Gen 1 vibration source (CLAUDE.md §3.1 track 3); it replaces the Polar
-    // onboard accel that fed accel before the biometric path was decoupled.
+    // API key is read from SettingsRepository at provision time.
+    // Changing the key in settings takes effect on next app start because the
+    // singleton ClaudeVisionClient is created once at injection time.
     @Provides @Singleton
-    fun provideAccelSource(@ApplicationContext ctx: Context): AccelSource =
-        PhoneImuAccelSource(ctx)
-
-    // ---- LlmClient ----------------------------------------------------
-    // ClaudeVisionClient is used by VisionTelemetrySource for optical R_phys
-    // extraction (CLAUDE.md §W-008 rationale).  API key from local.properties.
-    @Provides @Singleton
-    fun provideLlmClient(): LlmClient =
-        ClaudeVisionClient(apiKey = BuildConfig.CLAUDE_API_KEY)
-
-    // ---- PlcTelemetrySource -------------------------------------------
-    // VisionTelemetrySource replaces a direct PLC API for Phase 1–2.
-    // Conforms to the same PlcTelemetrySource interface so the swap is
-    // a DI-binding change when the PLC API becomes available (Phase 3).
-    @Provides @Singleton
-    fun providePlcTelemetrySource(llmClient: LlmClient): PlcTelemetrySource =
-        VisionTelemetrySource(
-            config    = HollowellChannelPresets.ppvcLine1,
-            llmClient = llmClient,
-        )
+    fun provideLlmClient(settings: SettingsRepository): LlmClient =
+        ClaudeVisionClient(apiKey = settings.claudeApiKey.value)
 }

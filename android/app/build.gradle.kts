@@ -39,6 +39,10 @@ android {
         // Phase 1 facility constants — not secrets, but kept configurable.
         buildConfigField("String", "FACILITY_ID", "\"hollowell_industries\"")
         buildConfigField("String", "LINE_ID",     "\"ppvc_line_1\"")
+        buildConfigField(
+            "String", "GLASSES_DEVICE_ID",
+            "\"${localProperties.getProperty("GLASSES_DEVICE_ID", "")}\""
+        )
     }
 
     buildFeatures {
@@ -62,6 +66,8 @@ dependencies {
     implementation(project(":shadow-mode-labeler"))
     implementation(project(":source-camerax"))
     implementation(project(":source-imu"))
+    implementation(project(":source-polar"))
+    implementation(project(":source-meta-raybans"))
     implementation(project(":source-vision-telemetry"))
     implementation(project(":llm-claude"))
 
@@ -76,9 +82,13 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material.icons.core)
+    implementation(libs.compose.material.icons.extended)
     implementation(libs.navigation.compose)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
+
+    // camerax-view for PreviewView (Task 2 — camera preview in MainScreen)
+    implementation(libs.camerax.view)
 
     // ---- Android / Coroutines --------------------------------------------
     implementation(libs.androidx.core.ktx)

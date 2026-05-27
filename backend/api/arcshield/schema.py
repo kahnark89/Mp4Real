@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
@@ -73,6 +73,13 @@ class ProductQualityImpact(str, Enum):
     SCRAP            = "SCRAP"
 
 
+class RPhysStatus(str, Enum):
+    PENDING       = "PENDING"        # deadline set, R_phys not yet received
+    ARRIVED       = "ARRIVED"        # R_phys recorded; OGC update has fired
+    INDETERMINATE = "INDETERMINATE"  # deadline passed without R_phys; weight unchanged
+    NOT_REQUIRED  = "NOT_REQUIRED"   # event closed on own telemetry; no deferred R_phys
+
+
 # ---------------------------------------------------------------------------
 # Sub-objects
 # ---------------------------------------------------------------------------
@@ -111,6 +118,25 @@ class SensorDelta(BaseModel):
     instrument_id : str
     delta         : float
     direction     : DeltaDirection
+
+
+class RPhysRecord(BaseModel):
+    """
+    Outcome-Grounded Confidence (OGC) deferred reward record.
+    Tracks the physical reward R_phys that gates the confidence update rule.
+
+    Lifecycle: PENDING → ARRIVED (OGC update fires) or INDETERMINATE (deadline lapsed).
+    NOT_REQUIRED is set at ingest for events that close on their own telemetry.
+
+    This record is the FK that the OGC update rule requires (CLAUDE.md §6.2).
+    No code path may update graph_weight via the OGC rule without referencing a
+    non-None RPhysRecord with status=ARRIVED.
+    """
+    status     : RPhysStatus
+    deadline   : datetime | None = None  # UTC; required when status=PENDING
+    arrived_at : datetime | None = None  # UTC; set by record_r_phys
+    value      : float | None   = None   # [0.0, 1.0]; present only when ARRIVED
+    source     : str | None     = None   # "manual_qc" | "plc_motor_amps" | etc.
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +197,12 @@ class Result(BaseModel):
     product_quality_impact    : ProductQualityImpact
     graph_weight              : float = Field(ge=0.0, le=1.0)
     operator_notes            : str | None = None
+    # OGC fields (CLAUDE.md §6) — None on pre-Phase-2 events; additive, never destructive
+    r_phys              : RPhysRecord | None = None
+    # Gating scalar precursor: None = no Twin guidance (compliance = 1 always).
+    # Populated by Twin at Phase 3+. Architecturally separate from r_phys — the
+    # compliance column and the reward column must never share a code path.
+    advised_action_type : ActionType | None  = None
 
 
 # ---------------------------------------------------------------------------

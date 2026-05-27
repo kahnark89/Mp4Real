@@ -9,9 +9,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
@@ -20,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.capsconc.arcshield.labeler.ElicitedAction
 import com.capsconc.arcshield.labeler.Label
 import com.capsconc.arcshield.labeler.LabeledWindow
 import java.util.concurrent.TimeUnit
@@ -33,11 +39,15 @@ import java.util.concurrent.TimeUnit
  */
 @Composable
 fun CandidateWindowRow(
-    lw:               LabeledWindow,
-    shiftStartNanos:  Long,
-    maxLambda:        Float,
-    onLabel:          (Label) -> Unit,
-    modifier:         Modifier = Modifier,
+    lw:              LabeledWindow,
+    shiftStartNanos: Long,
+    maxLambda:       Float,
+    onLabel:         (Label) -> Unit,
+    onSeek:          () -> Unit = {},
+    onElicit:        () -> Unit = {},
+    elicitedAction:  ElicitedAction? = null,
+    isListening:     Boolean = false,
+    modifier:        Modifier = Modifier,
 ) {
     val w = lw.window
     val relNanos  = w.detectedAtNanos - shiftStartNanos
@@ -84,7 +94,7 @@ fun CandidateWindowRow(
             }
         }
 
-        // TP / FP / UNLABELED toggle
+        // TP / FP / UNLABELED toggle + seek + elicit
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             FilledTonalButton(
                 onClick  = { onLabel(if (lw.label == Label.TRUE_POSITIVE) Label.UNLABELED else Label.TRUE_POSITIVE) },
@@ -100,6 +110,46 @@ fun CandidateWindowRow(
                 Text(if (lw.label == Label.FALSE_POSITIVE) "✓FP" else "FP",
                     style = MaterialTheme.typography.labelSmall)
             }
+            // Seek player to 30 s before this window's detection PTS
+            IconButton(onClick = onSeek, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Seek to window",
+                    tint = MaterialTheme.colorScheme.primary)
+            }
+            // Voice-first elicitation button
+            FilledTonalButton(
+                onClick  = onElicit,
+                enabled  = !isListening,
+                modifier = Modifier.width(48.dp),
+            ) {
+                Text(
+                    if (elicitedAction != null) "●Mic" else "Mic",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (elicitedAction != null) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+
+    // Show elicited action summary below the row if present
+    if (elicitedAction != null) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+        ) {
+            Text(
+                "${elicitedAction.actionType} → ${elicitedAction.actionTarget}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                elicitedAction.canonicalIntuition,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
         }
     }
 }

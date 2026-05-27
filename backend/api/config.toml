@@ -11,23 +11,33 @@ facility_id = "HOLLOWELL_PPVC1"
 allow_writes = true   # set false on read-only remote deployments
 
 [backend]
-# Phase 1: flat JSON files. Switch to "sqlite" or "neo4j" when ready.
+# Phase 2: SQLite with indexed columns and value-proximity scoring.
 # get_backend() in arcshield/corpus/backends/__init__.py handles routing.
-type = "json"
+type = "sqlite"
 
 [backend.json]
 corpus_dir = "./corpus"
 
-# [backend.sqlite]           # Phase 2 — uncomment when SqliteCorpusBackend exists
-# db_path = "./corpus.db"
+[backend.sqlite]
+db_path = "./corpus.db"
 
 # [backend.neo4j]            # Phase 3 — uncomment when GraphCorpusBackend exists
 # uri      = "bolt://localhost:7687"
 # username = "neo4j"
 # password = "REPLACE_ME"
 
+[ogc]
+# OGC learning rate α (CLAUDE.md §6.1). Controls how fast R_phys updates graph_weight.
+# new_weight = graph_weight + α * (R_phys - graph_weight) * compliance_gate
+# Default 0.1: moderate update. Lower for stability in sparse corpus; raise at Phase 4.
+alpha = 0.1
+
 [auth]
-# Future: operator_id allowlist for write tool authorization.
-# Phase 1: write access is controlled only by allow_writes above.
-# Phase 2: per-operator signed tokens required for ingest_event and update_graph_weight.
-# write_operators = ["op_hash_abc123", "op_hash_def456"]
+# Per-operator write authorization (MCP-MOD-004).
+# When write_operators is present and non-empty, ingest_event and
+# update_graph_weight verify that event.operator_id / updated_by appears
+# in this list before touching the backend. Empty list = no restriction.
+# Values are the operator_id hashes used in CIAER+ event records.
+# Phase 3 upgrade path: replace list lookup with signed-token verification
+# once MCP header support lands upstream.
+write_operators = ["op_hash_abc123"]   # seed operator from April 8 PIE demo

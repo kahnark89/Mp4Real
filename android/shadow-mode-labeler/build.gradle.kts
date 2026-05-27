@@ -20,7 +20,7 @@ android {
 }
 
 dependencies {
-    // CandidateWindow + core LLR types
+    // CandidateWindow + core LLR types (transitively includes core-schema → LlmClient)
     api(project(":core-llr"))
 
     implementation(platform(libs.compose.bom))
@@ -32,6 +32,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core.ktx)
+
+    // ExoPlayer for offline playback elicitation (W-015)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

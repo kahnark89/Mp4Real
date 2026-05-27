@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -24,6 +24,7 @@ from arcshield.corpus.backend import (
     EventNotFoundError,
     SchemaValidationError,
     WeightUpdate,
+    RPhysUpdate,
 )
 from arcshield.corpus.backends import get_backend
 from arcshield.schema import (
@@ -42,6 +43,8 @@ from arcshield.schema import (
     PredictionMatch,
     ProductQualityImpact,
     Result,
+    RPhysRecord,
+    RPhysStatus,
     SensorDelta,
     SensorReading,
     SRKLevel,
@@ -154,14 +157,20 @@ def tmpdir():
         yield d
 
 
-@pytest_asyncio.fixture(params=["json"])
+@pytest_asyncio.fixture(params=["json", "sqlite"])
 async def backend(request, tmpdir):
     """
-    Parameterized fixture. Add "sqlite", "neo4j" here when those backends exist.
-    Each test runs against every backend in this list.
+    Parameterized fixture. Each test runs against every backend in this list.
+    Add "neo4j" here when GraphCorpusBackend exists.
     """
     btype = request.param
-    kwargs = {"corpus_dir": tmpdir, "facility_id": FACILITY} if btype == "json" else {}
+    if btype == "json":
+        kwargs = {"corpus_dir": tmpdir, "facility_id": FACILITY}
+    elif btype == "sqlite":
+        import os
+        kwargs = {"db_path": os.path.join(tmpdir, "corpus.db"), "facility_id": FACILITY}
+    else:
+        kwargs = {}
     b = get_backend(btype, **kwargs)
     async with b:
         yield b
@@ -400,6 +409,20 @@ class TestQueryByCauseSignature:
         assert results == []
 
 
+def make_event_with_pending_r_phys(
+    deadline_hours: float = 24.0,
+    graph_weight: float = 0.7,
+) -> CIAEREvent:
+    """make_event() variant with r_phys.status=PENDING and a deadline."""
+    deadline = datetime.now(timezone.utc) + timedelta(hours=deadline_hours)
+    event = make_event(graph_weight=graph_weight)
+    return event.model_copy(update={
+        "result": event.result.model_copy(update={
+            "r_phys": RPhysRecord(status=RPhysStatus.PENDING, deadline=deadline)
+        })
+    })
+
+
 class TestListFailureModes:
     async def test_returns_all_tags(self, backend):
         await backend.ingest_event(make_event(failure_mode_tag="material_segregation"))
@@ -431,3 +454,124 @@ class TestListFailureModes:
 
     async def test_empty_corpus_returns_empty_list(self, backend):
         assert await backend.list_failure_modes() == []
+
+
+class TestRPhys:
+    """
+    OGC deferred R_phys queue contract (CLAUDE.md §6).
+    These tests verify the anti-reflexivity firewall is correctly wired:
+    R_phys and the compliance scalar never share a code path.
+    """
+
+    async def test_record_r_phys_updates_weight(self, backend):
+        event = make_event_with_pending_r_phys(graph_weight=0.5)
+        await backend.ingest_event(event)
+
+        upd = RPhysUpdate(event_id=event.event_id, value=1.0, source="manual_qc", updated_by=OPERATOR)
+        updated = await backend.record_r_phys(upd)
+        # α=0.1, δ=1.0-0.5=0.5, compliance=1 → new_weight = 0.5 + 0.1*0.5*1 = 0.55
+        assert updated.result.graph_weight == pytest.approx(0.55)
+        assert updated.result.r_phys.status == RPhysStatus.ARRIVED
+        assert updated.result.r_phys.value == pytest.approx(1.0)
+
+    async def test_ogc_adversarial_high_weight_low_r_phys_produces_negative_delta(self, backend):
+        """Phase 2 acceptance criterion: high-compliance / low-R_phys must produce negative δ."""
+        event = make_event_with_pending_r_phys(graph_weight=0.9)
+        await backend.ingest_event(event)
+
+        upd = RPhysUpdate(event_id=event.event_id, value=0.0, source="manual_qc", updated_by=OPERATOR)
+        updated = await backend.record_r_phys(upd)
+        # α=0.1, δ=0.0-0.9=-0.9, compliance=1 → new_weight = 0.9 + 0.1*(-0.9)*1 = 0.81
+        assert updated.result.graph_weight < 0.9
+        assert updated.result.graph_weight == pytest.approx(0.81)
+
+    async def test_record_r_phys_weight_persists(self, backend):
+        event = make_event_with_pending_r_phys(graph_weight=0.6)
+        await backend.ingest_event(event)
+        upd = RPhysUpdate(event_id=event.event_id, value=0.8, source="plc_motor_amps", updated_by=OPERATOR)
+        await backend.record_r_phys(upd)
+
+        retrieved = await backend.get_event(event.event_id)
+        assert retrieved.result.r_phys.status == RPhysStatus.ARRIVED
+        assert retrieved.result.r_phys.value == pytest.approx(0.8)
+
+    async def test_record_r_phys_missing_event_raises(self, backend):
+        upd = RPhysUpdate(event_id=uuid4(), value=0.9, source="manual_qc", updated_by=OPERATOR)
+        with pytest.raises(EventNotFoundError):
+            await backend.record_r_phys(upd)
+
+    async def test_record_r_phys_no_r_phys_record_raises(self, backend):
+        event = make_event()  # no r_phys field set
+        await backend.ingest_event(event)
+        upd = RPhysUpdate(event_id=event.event_id, value=0.9, source="manual_qc", updated_by=OPERATOR)
+        with pytest.raises(SchemaValidationError):
+            await backend.record_r_phys(upd)
+
+    async def test_record_r_phys_twice_raises(self, backend):
+        event = make_event_with_pending_r_phys()
+        await backend.ingest_event(event)
+        upd = RPhysUpdate(event_id=event.event_id, value=0.9, source="manual_qc", updated_by=OPERATOR)
+        await backend.record_r_phys(upd)
+        with pytest.raises(SchemaValidationError):
+            await backend.record_r_phys(upd)
+
+    async def test_list_pending_r_phys_returns_only_pending(self, backend):
+        pending = make_event_with_pending_r_phys()
+        no_rphys = make_event()
+        await backend.ingest_event(pending)
+        await backend.ingest_event(no_rphys)
+
+        results = await backend.list_pending_r_phys()
+        ids = {e.event_id for e in results}
+        assert pending.event_id in ids
+        assert no_rphys.event_id not in ids
+
+    async def test_expire_r_phys_deadlines_marks_overdue_indeterminate(self, backend):
+        # deadline in the past
+        past_deadline = datetime.now(timezone.utc) - timedelta(hours=1)
+        event = make_event(graph_weight=0.7)
+        event = event.model_copy(update={
+            "result": event.result.model_copy(update={
+                "r_phys": RPhysRecord(status=RPhysStatus.PENDING, deadline=past_deadline)
+            })
+        })
+        await backend.ingest_event(event)
+
+        expired = await backend.expire_r_phys_deadlines()
+        assert event.event_id in expired
+
+        retrieved = await backend.get_event(event.event_id)
+        assert retrieved.result.r_phys.status == RPhysStatus.INDETERMINATE
+        # graph_weight unchanged — indeterminate events do not update weight
+        assert retrieved.result.graph_weight == pytest.approx(0.7)
+
+    async def test_expire_r_phys_leaves_future_deadlines_untouched(self, backend):
+        future_event = make_event_with_pending_r_phys(deadline_hours=48)
+        await backend.ingest_event(future_event)
+
+        expired = await backend.expire_r_phys_deadlines()
+        assert future_event.event_id not in expired
+
+        retrieved = await backend.get_event(future_event.event_id)
+        assert retrieved.result.r_phys.status == RPhysStatus.PENDING
+
+    async def test_ingest_indeterminate_without_r_phys_raises(self, backend):
+        """CLAUDE.md §2.4: INDETERMINATE events must have r_phys.status=PENDING."""
+        event = make_event()
+        bad = event.model_copy(update={
+            "effect": event.effect.model_copy(update={
+                "prediction_match": PredictionMatch.INDETERMINATE
+            })
+        })
+        with pytest.raises(SchemaValidationError, match="INDETERMINATE"):
+            await backend.ingest_event(bad)
+
+    async def test_ingest_indeterminate_with_pending_r_phys_succeeds(self, backend):
+        event = make_event_with_pending_r_phys()
+        bad = event.model_copy(update={
+            "effect": event.effect.model_copy(update={
+                "prediction_match": PredictionMatch.INDETERMINATE
+            })
+        })
+        result_id = await backend.ingest_event(bad)
+        assert result_id == bad.event_id
