@@ -50,6 +50,7 @@ import json
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -66,6 +67,7 @@ from arcshield.corpus.backend import (
     EventNotFoundError,
     SchemaValidationError,
     WeightUpdate,
+    RPhysUpdate,
 )
 from arcshield.corpus.backends import get_backend
 from arcshield.schema import (
@@ -74,6 +76,8 @@ from arcshield.schema import (
     FailureModeQuery,
     SensorReading,
     SRKLevel,
+    RPhysRecord,
+    RPhysStatus,
 )
 
 # ---------------------------------------------------------------------------
@@ -156,10 +160,12 @@ def build_server(config: dict) -> FastMCP:
     facility_id    = config["server"]["facility_id"]
     allow_writes   = config["server"].get("allow_writes", False)
     write_operators: list[str] = config.get("auth", {}).get("write_operators", [])
+    ogc_alpha: float = config.get("ogc", {}).get("alpha", 0.1)
     backend_type   = config["backend"]["type"]
     backend_kwargs = {
         **config["backend"].get(backend_type, {}),
         "facility_id": facility_id,
+        "ogc_alpha"  : ogc_alpha,
     }
 
     # ------------------------------------------------------------------
@@ -425,7 +431,11 @@ def build_server(config: dict) -> FastMCP:
             "once MCP header support lands upstream."
         )
     )
-    async def ingest_event(ctx, event_json: str) -> str:
+    async def ingest_event(
+        ctx,
+        event_json: str,
+        r_phys_deadline_hours: float | None = None,
+    ) -> str:
         if not allow_writes:
             return _error(
                 "ingest_event",
@@ -438,6 +448,17 @@ def build_server(config: dict) -> FastMCP:
             event = CIAEREvent.model_validate(raw)
             if auth_err := _check_write_auth(event.operator_id, "ingest_event"):
                 return auth_err
+            # Inject pending R_phys deadline if caller provided one and event doesn't have one
+            if r_phys_deadline_hours is not None and event.result.r_phys is None:
+                deadline = datetime.now(timezone.utc) + timedelta(hours=r_phys_deadline_hours)
+                event = event.model_copy(update={
+                    "result": event.result.model_copy(update={
+                        "r_phys": RPhysRecord(
+                            status   = RPhysStatus.PENDING,
+                            deadline = deadline,
+                        )
+                    })
+                })
             event_id = await backend.ingest_event(event)
             log.info("Ingested event %s (failure_mode=%s)", event_id, event.intuition.failure_mode_tag)
             return _ok(
@@ -520,6 +541,144 @@ def build_server(config: dict) -> FastMCP:
         except Exception as exc:
             log.exception("update_graph_weight failed")
             return _error("update_graph_weight", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: record_r_phys (OGC write — guarded by allow_writes)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Record physical reward R_phys for an event and fire the OGC confidence "
+            "update rule (CLAUDE.md §6). This is the ONLY legitimate path that mutates "
+            "graph_weight based on physical outcome.\n\n"
+            "OGC rule: δ = R_phys − graph_weight; "
+            "new_weight = graph_weight + α·δ·[a_t = â_t]\n"
+            "where [a_t = â_t] = 1 when advised_action_type is None (Phase 1/2) or "
+            "operator followed Twin advice.\n\n"
+            "R_phys is architecturally isolated from the compliance scalar — they are "
+            "read from separate fields and never share a code path.\n\n"
+            "Args:\n"
+            "  event_id: UUID of the event (must have r_phys.status=PENDING)\n"
+            "  value: physical reward in [0.0, 1.0] — 1.0=fully resolved, 0.0=worsened\n"
+            "  source: where R_phys came from (e.g. 'manual_qc', 'plc_motor_amps')\n"
+            "  updated_by: operator_id hash or 'SYSTEM'\n\n"
+            "Per-operator auth: updated_by must be in write_operators allowlist if set."
+        )
+    )
+    async def record_r_phys(
+        ctx,
+        event_id   : str,
+        value      : float,
+        source     : str,
+        updated_by : str = "SYSTEM",
+    ) -> str:
+        if not allow_writes:
+            return _error(
+                "record_r_phys", "WRITE_DISABLED",
+                "This server is configured read-only (allow_writes=false in config.toml).",
+            )
+        if auth_err := _check_write_auth(updated_by, "record_r_phys"):
+            return auth_err
+        backend = ctx.request_context.lifespan_context["backend"]
+        try:
+            upd = RPhysUpdate(
+                event_id   = UUID(event_id),
+                value      = value,
+                source     = source,
+                updated_by = updated_by,
+            )
+            updated = await backend.record_r_phys(upd)
+            log.info("R_phys recorded: event=%s value=%.3f source=%s", event_id, value, source)
+            return _ok(
+                "record_r_phys",
+                backend.facility_id,
+                backend.corpus_depth,
+                event_id         = event_id,
+                r_phys_value     = value,
+                source           = source,
+                new_graph_weight = updated.result.graph_weight,
+                r_phys_status    = updated.result.r_phys.status.value if updated.result.r_phys else None,
+            )
+        except ValueError as exc:
+            return _error("record_r_phys", "INVALID_PARAMS", str(exc))
+        except EventNotFoundError as exc:
+            return _error("record_r_phys", "NOT_FOUND", str(exc))
+        except SchemaValidationError as exc:
+            return _error("record_r_phys", "SCHEMA_VALIDATION_ERROR", str(exc))
+        except Exception as exc:
+            log.exception("record_r_phys failed")
+            return _error("record_r_phys", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: expire_r_phys_deadlines (OGC admin — guarded by allow_writes)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Scan for events with r_phys.status=PENDING whose deadline has passed "
+            "and mark them INDETERMINATE. These events will NOT update graph_weight — "
+            "they are frozen at their current confidence and flagged for human review.\n\n"
+            "Call this periodically (e.g. at shift start) to close out stale pending "
+            "R_phys entries. Returns the list of expired event IDs.\n\n"
+            "Requires allow_writes=true. Per-operator auth applies to updated_by."
+        )
+    )
+    async def expire_r_phys_deadlines(
+        ctx,
+        updated_by: str = "SYSTEM",
+    ) -> str:
+        if not allow_writes:
+            return _error(
+                "expire_r_phys_deadlines", "WRITE_DISABLED",
+                "This server is configured read-only (allow_writes=false in config.toml).",
+            )
+        if auth_err := _check_write_auth(updated_by, "expire_r_phys_deadlines"):
+            return auth_err
+        backend = ctx.request_context.lifespan_context["backend"]
+        try:
+            expired_ids = await backend.expire_r_phys_deadlines()
+            log.info("R_phys expiry: %d events marked INDETERMINATE", len(expired_ids))
+            return _ok(
+                "expire_r_phys_deadlines",
+                backend.facility_id,
+                backend.corpus_depth,
+                expired_count = len(expired_ids),
+                expired_ids   = [str(eid) for eid in expired_ids],
+            )
+        except Exception as exc:
+            log.exception("expire_r_phys_deadlines failed")
+            return _error("expire_r_phys_deadlines", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: list_pending_r_phys (read)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "List events waiting for physical reward R_phys to arrive, ordered by "
+            "deadline ascending (soonest first). Use to drive a monitoring dashboard "
+            "or to know which events need manual QC entry next.\n\n"
+            "Args:\n"
+            "  max_results: upper bound on results returned (default 50)"
+        )
+    )
+    async def list_pending_r_phys(
+        ctx,
+        max_results: int = 50,
+    ) -> str:
+        backend = ctx.request_context.lifespan_context["backend"]
+        try:
+            events = await backend.list_pending_r_phys(max_results=max_results)
+            return _ok(
+                "list_pending_r_phys",
+                backend.facility_id,
+                backend.corpus_depth,
+                pending_count = len(events),
+                events        = [_serialize_event(e) for e in events],
+            )
+        except Exception as exc:
+            log.exception("list_pending_r_phys failed")
+            return _error("list_pending_r_phys", "BACKEND_ERROR", str(exc))
 
     # ------------------------------------------------------------------
     # Tool: get_divergent_chains (graph traversal — Phase 3+)

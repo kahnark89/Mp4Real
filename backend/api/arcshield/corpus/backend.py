@@ -39,6 +39,7 @@ from arcshield.schema import (
     CauseSignatureQuery,
     FailureModeQuery,
     FailureModeSummary,
+    RPhysStatus,
 )
 
 
@@ -75,6 +76,22 @@ class WeightUpdate:
     new_weight : float          # 0.0 – 1.0
     rationale  : str            # plain-text explanation (required, not optional)
     updated_by : str            # operator_id hash or "SYSTEM"
+
+
+@dataclass(frozen=True)
+class RPhysUpdate:
+    """
+    Immutable record of a physical reward R_phys arrival.
+    Passed to record_r_phys; triggers the OGC confidence update rule.
+
+    CLAUDE.md §6.2: R_phys is the ONLY legitimate input to the δ computation.
+    This record must never carry the compliance indicator [a_t = â_t] — that
+    lives in event.result.advised_action_type and is read separately.
+    """
+    event_id   : UUID
+    value      : float   # physical reward in [0.0, 1.0]
+    source     : str     # "manual_qc" | "plc_motor_amps" | "sensor_zone1_temp" | etc.
+    updated_by : str     # operator_id hash or "SYSTEM"
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +192,53 @@ class CorpusBackend(ABC):
         Returns the updated event record.
         Raises EventNotFoundError if the event_id does not exist.
         Raises ValueError if new_weight is outside [0.0, 1.0].
+        """
+
+    @abstractmethod
+    async def record_r_phys(self, update: RPhysUpdate) -> CIAEREvent:
+        """
+        Record physical reward R_phys arrival and fire the OGC update rule.
+
+        OGC update (CLAUDE.md §6.1):
+            δ          = update.value - event.result.graph_weight
+            compliance = 1  if event.result.advised_action_type is None
+                            else (1 if event.action.action_type == advised else 0)
+            new_weight = clamp(graph_weight + α * δ * compliance, 0.0, 1.0)
+
+        The compliance scalar and the reward scalar are read from completely
+        separate fields — they must never share a code path (§6.3 independence
+        guarantee). α comes from the backend's ogc_alpha config parameter.
+
+        Side effects:
+          - event.result.r_phys updated: status=ARRIVED, arrived_at=now, value=value
+          - event.result.graph_weight updated to new_weight
+          - weight_audit entry appended with rationale = "OGC_R_PHYS: {source}"
+
+        Raises EventNotFoundError if event does not exist.
+        Raises ValueError if value is outside [0.0, 1.0].
+        Raises SchemaValidationError if event.result.r_phys is None or status != PENDING.
+        """
+
+    @abstractmethod
+    async def expire_r_phys_deadlines(self) -> list[UUID]:
+        """
+        Scan for events with r_phys.status=PENDING and deadline < now(UTC),
+        mark each as INDETERMINATE, and return the list of expired event_ids.
+
+        These events do NOT update graph_weight — they are frozen at their
+        current weight. Callers should surface expired events for human review.
+
+        Returns [] when no events have expired deadlines.
+        """
+
+    @abstractmethod
+    async def list_pending_r_phys(self, max_results: int = 50) -> list[CIAEREvent]:
+        """
+        Return events with r_phys.status=PENDING, ordered by deadline ascending
+        (soonest deadline first). Use to drive a monitoring dashboard or
+        expiry-check job.
+
+        Returns [] when no events have pending R_phys.
         """
 
     # ------------------------------------------------------------------

@@ -61,6 +61,10 @@ EXPECTED_TOOLS = {
     "ingest_event",
     "update_graph_weight",
     "get_divergent_chains",
+    # OGC tools (MCP-MOD-005)
+    "record_r_phys",
+    "expire_r_phys_deadlines",
+    "list_pending_r_phys",
 }
 
 
@@ -96,11 +100,11 @@ def _tool_callable(mcp, name):
 
 
 @pytest.mark.asyncio
-async def test_exactly_eight_tools_registered():
+async def test_exactly_eleven_tools_registered():
     tools = await _build().list_tools()
     names = {t.name for t in tools}
     assert names == EXPECTED_TOOLS, f"unexpected tool surface: {names ^ EXPECTED_TOOLS}"
-    assert len(tools) == 8
+    assert len(tools) == 11
 
 
 @pytest.mark.asyncio

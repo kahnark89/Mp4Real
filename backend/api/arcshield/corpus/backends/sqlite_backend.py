@@ -34,12 +34,16 @@ from arcshield.corpus.backend import (
     EventNotFoundError,
     SchemaValidationError,
     WeightUpdate,
+    RPhysUpdate,
 )
 from arcshield.schema import (
     CIAEREvent,
     CauseSignatureQuery,
     FailureModeQuery,
     FailureModeSummary,
+    PredictionMatch,
+    RPhysRecord,
+    RPhysStatus,
 )
 
 # ---------------------------------------------------------------------------
@@ -65,13 +69,18 @@ CREATE TABLE IF NOT EXISTS events (
     -- JSON dict {instrument_id: value} for value-proximity scoring (MOD-003)
     instrument_values TEXT    NOT NULL DEFAULT '{}',
     -- Full serialized CIAEREvent; source of truth for all other fields
-    event_json        TEXT    NOT NULL
+    event_json        TEXT    NOT NULL,
+    -- OGC deferred R_phys columns (CLAUDE.md §6) — NULL on pre-Phase-2 events
+    r_phys_status     TEXT,
+    r_phys_deadline   TEXT,
+    r_phys_value      REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_failure_mode  ON events (failure_mode_tag);
 CREATE INDEX IF NOT EXISTS idx_escalation    ON events (escalation_state);
 CREATE INDEX IF NOT EXISTS idx_graph_weight  ON events (graph_weight DESC);
 CREATE INDEX IF NOT EXISTS idx_operator      ON events (operator_id);
+CREATE INDEX IF NOT EXISTS idx_r_phys        ON events (r_phys_status, r_phys_deadline);
 
 CREATE TABLE IF NOT EXISTS weight_audit (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,9 +107,10 @@ class SqliteCorpusBackend(CorpusBackend):
     ingest — O(1), never scans the table.
     """
 
-    def __init__(self, db_path: str | Path, facility_id: str) -> None:
+    def __init__(self, db_path: str | Path, facility_id: str, ogc_alpha: float = 0.1) -> None:
         self._db_path        = Path(db_path)
         self._facility_id    = facility_id
+        self._ogc_alpha      = ogc_alpha
         self._db: aiosqlite.Connection | None = None
         self._corpus_depth   = 0
         self._failure_mode_cache: list[FailureModeSummary] | None = None
@@ -117,6 +127,17 @@ class SqliteCorpusBackend(CorpusBackend):
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(_DDL)
         await self._db.commit()
+        # Additive column migration for databases created before OGC columns existed
+        for col, defn in [
+            ("r_phys_status",   "TEXT"),
+            ("r_phys_deadline", "TEXT"),
+            ("r_phys_value",    "REAL"),
+        ]:
+            try:
+                await self._db.execute(f"ALTER TABLE events ADD COLUMN {col} {defn}")
+                await self._db.commit()
+            except aiosqlite.OperationalError:
+                pass  # column already present
         # Seed in-memory depth counter from DB (handles restart after crash)
         async with self._db.execute("SELECT COUNT(*) FROM events") as cur:
             row = await cur.fetchone()
@@ -203,16 +224,28 @@ class SqliteCorpusBackend(CorpusBackend):
                 f"({event.result.escalation_state_at_result}) = {expected_delta}"
             )
 
+        # INDETERMINATE events must have a pending R_phys deadline (CLAUDE.md §2.4)
+        if event.effect.prediction_match == PredictionMatch.INDETERMINATE:
+            rp = event.result.r_phys
+            if rp is None or rp.status != RPhysStatus.PENDING:
+                raise SchemaValidationError(
+                    "Events with prediction_match=INDETERMINATE must have "
+                    "result.r_phys.status=PENDING (deadline set). "
+                    "Either confirm/disconfirm on own telemetry or queue a deferred R_phys."
+                )
+
         ids, vals = self._extract_instruments(event)
 
+        rp = event.result.r_phys
         try:
             await self._db.execute(
                 """
                 INSERT INTO events (
                     event_id, facility_id, operator_id, failure_mode_tag, srk_level,
                     escalation_state, graph_weight, outcome_tag, timestamp_start,
-                    instruments, instrument_values, event_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    instruments, instrument_values, event_json,
+                    r_phys_status, r_phys_deadline, r_phys_value
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     eid,
@@ -227,6 +260,9 @@ class SqliteCorpusBackend(CorpusBackend):
                     json.dumps(ids),
                     json.dumps(vals),
                     event.model_dump_json(),
+                    rp.status.value if rp else None,
+                    rp.deadline.isoformat() if rp and rp.deadline else None,
+                    rp.value if rp else None,
                 ),
             )
             await self._db.commit()
@@ -429,6 +465,123 @@ class SqliteCorpusBackend(CorpusBackend):
 
         self._failure_mode_cache = summaries
         return summaries
+
+    # ------------------------------------------------------------------
+    # OGC — Outcome-Grounded Confidence (CLAUDE.md §6)
+    # ------------------------------------------------------------------
+
+    async def record_r_phys(self, update: RPhysUpdate) -> CIAEREvent:
+        self._assert_open()
+
+        if not (0.0 <= update.value <= 1.0):
+            raise ValueError(f"R_phys value must be in [0.0, 1.0], got {update.value}")
+
+        eid = str(update.event_id)
+        async with self._db.execute(
+            "SELECT event_json FROM events WHERE event_id = ?", (eid,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise EventNotFoundError(update.event_id)
+
+        event = CIAEREvent.model_validate_json(row["event_json"])
+        rp = event.result.r_phys
+        if rp is None:
+            raise SchemaValidationError(
+                f"Event {update.event_id} has no r_phys record. "
+                "Set r_phys at ingest time (r_phys_deadline_hours) before recording arrival."
+            )
+        if rp.status != RPhysStatus.PENDING:
+            raise SchemaValidationError(
+                f"Event {update.event_id} r_phys.status is '{rp.status.value}', "
+                "expected PENDING. Cannot record R_phys twice or after expiry."
+            )
+
+        # OGC update rule — reward and compliance are separate paths (CLAUDE.md §6.3)
+        α = self._ogc_alpha
+        advised = event.result.advised_action_type
+        compliance = 1 if advised is None else (1 if event.action.action_type == advised else 0)
+        δ = update.value - event.result.graph_weight
+        new_weight = max(0.0, min(1.0, event.result.graph_weight + α * δ * compliance))
+
+        now = datetime.now(timezone.utc)
+        updated_r_phys = rp.model_copy(update={
+            "status"    : RPhysStatus.ARRIVED,
+            "arrived_at": now,
+            "value"     : update.value,
+            "source"    : update.source,
+        })
+        updated = event.model_copy(update={
+            "result": event.result.model_copy(update={
+                "graph_weight": new_weight,
+                "r_phys"      : updated_r_phys,
+            })
+        })
+
+        rationale = (
+            f"OGC_R_PHYS: {update.source} (value={update.value:.4f}, "
+            f"delta={δ:.4f}, compliance={compliance}, alpha={α})"
+        )
+        ts = now.isoformat()
+        await self._db.execute(
+            "UPDATE events SET graph_weight = ?, r_phys_status = ?, r_phys_value = ?, "
+            "event_json = ? WHERE event_id = ?",
+            (new_weight, RPhysStatus.ARRIVED.value, update.value, updated.model_dump_json(), eid),
+        )
+        await self._db.execute(
+            "INSERT INTO weight_audit (event_id, ts, new_weight, rationale, updated_by) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (eid, ts, new_weight, rationale, update.updated_by),
+        )
+        await self._db.commit()
+
+        self._failure_mode_cache = None
+        return updated
+
+    async def expire_r_phys_deadlines(self) -> list[UUID]:
+        self._assert_open()
+        now = datetime.now(timezone.utc).isoformat()
+
+        async with self._db.execute(
+            "SELECT event_id, event_json FROM events "
+            "WHERE r_phys_status = 'PENDING' AND r_phys_deadline IS NOT NULL "
+            "AND r_phys_deadline < ?",
+            (now,),
+        ) as cur:
+            rows = await cur.fetchall()
+
+        if not rows:
+            return []
+
+        expired: list[UUID] = []
+        for row in rows:
+            event = CIAEREvent.model_validate_json(row["event_json"])
+            rp = event.result.r_phys
+            if rp is None:
+                continue
+            updated = event.model_copy(update={
+                "result": event.result.model_copy(update={
+                    "r_phys": rp.model_copy(update={"status": RPhysStatus.INDETERMINATE})
+                })
+            })
+            await self._db.execute(
+                "UPDATE events SET r_phys_status = ?, event_json = ? WHERE event_id = ?",
+                (RPhysStatus.INDETERMINATE.value, updated.model_dump_json(), row["event_id"]),
+            )
+            expired.append(event.event_id)
+
+        await self._db.commit()
+        return expired
+
+    async def list_pending_r_phys(self, max_results: int = 50) -> list[CIAEREvent]:
+        self._assert_open()
+        async with self._db.execute(
+            "SELECT event_json FROM events WHERE r_phys_status = 'PENDING' "
+            "ORDER BY r_phys_deadline ASC NULLS LAST LIMIT ?",
+            (max_results,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [CIAEREvent.model_validate_json(r["event_json"]) for r in rows]
 
     # ------------------------------------------------------------------
     # Diagnostics
