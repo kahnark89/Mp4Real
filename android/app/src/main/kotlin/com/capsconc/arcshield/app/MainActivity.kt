@@ -1,3 +1,15 @@
+/*
+ * Intellectual Property and Trademark Notice
+ *
+ * mp4Real™, ArcShield™, CIAER™, and CIAER+™ are trademarks of Capps Consulting
+ * Company LLC. The multi-track cyber-physical capture architecture, the
+ * application of log-likelihood ratio (LLR) gating to multimodal industrial
+ * decision events, and the behavioral codebook discretization methods described
+ * in this document are the proprietary intellectual property of Kahn Capps and
+ * Capps Consulting Company LLC. Unauthorized commercial use, reproduction, or
+ * implementation of the mp4Real™ container architecture or the CIAER™ and CIAER+™
+ * schemas without explicit licensing is prohibited. All rights reserved.
+ */
 package com.capsconc.arcshield.app
 
 import android.Manifest
@@ -14,6 +26,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.capsconc.arcshield.app.ui.MainScreen
 import com.capsconc.arcshield.app.ui.SessionViewModel
+import com.capsconc.arcshield.app.ui.SettingsScreen
 import com.capsconc.arcshield.labeler.ui.LabelerScreen
 import com.capsconc.arcshield.schema.llm.LlmClient
 import dagger.hilt.android.AndroidEntryPoint
@@ -78,6 +91,9 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToLabeler = {
                                     navController.navigate("labeler")
                                 },
+                                onNavigateToSettings = {
+                                    navController.navigate("settings")
+                                },
                                 onRequestPermissions = {
                                     pendingStart = {
                                         sessionViewModel.startSession(this@MainActivity)
@@ -91,6 +107,12 @@ class MainActivity : ComponentActivity() {
                             // LabelerScreen manages its own internal back (clearSelection).
                             // System back + NavHost handle returning to "main".
                             LabelerScreen(llmClient = llmClient)
+                        }
+
+                        composable("settings") {
+                            SettingsScreen(
+                                onNavigateBack = { navController.popBackStack() },
+                            )
                         }
                     }
                 }

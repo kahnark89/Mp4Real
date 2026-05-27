@@ -10,6 +10,7 @@ import android.os.SystemClock
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
@@ -46,6 +47,9 @@ class CameraXCaptureSource(
     private val context:        Context,
     private val lifecycleOwner: LifecycleOwner,
     private val lensFacing:     Int = CameraSelector.LENS_FACING_BACK,
+    // When provided, the Preview is bound alongside ImageAnalysis so the
+    // viewfinder SurfaceProvider receives frames.
+    private val preview:        Preview? = null,
 ) : CaptureSource {
 
     override val sourceId: String = "phone_cameraX_v1"
@@ -75,7 +79,11 @@ class CameraXCaptureSource(
         providerFuture.addListener({
             val provider = providerFuture.get()
             provider.unbindAll()
-            provider.bindToLifecycle(lifecycleOwner, cameraSelector, imageAnalysis)
+            if (preview != null) {
+                provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalysis)
+            } else {
+                provider.bindToLifecycle(lifecycleOwner, cameraSelector, imageAnalysis)
+            }
         }, ContextCompat.getMainExecutor(context))
 
         awaitClose {

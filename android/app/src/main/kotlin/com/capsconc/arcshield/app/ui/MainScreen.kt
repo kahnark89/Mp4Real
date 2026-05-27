@@ -1,11 +1,26 @@
+/*
+ * Intellectual Property and Trademark Notice
+ *
+ * mp4Real™, ArcShield™, CIAER™, and CIAER+™ are trademarks of Capps Consulting
+ * Company LLC. The multi-track cyber-physical capture architecture, the
+ * application of log-likelihood ratio (LLR) gating to multimodal industrial
+ * decision events, and the behavioral codebook discretization methods described
+ * in this document are the proprietary intellectual property of Kahn Capps and
+ * Capps Consulting Company LLC. Unauthorized commercial use, reproduction, or
+ * implementation of the mp4Real™ container architecture or the CIAER™ and CIAER+™
+ * schemas without explicit licensing is prohibited. All rights reserved.
+ */
 package com.capsconc.arcshield.app.ui
 
+import androidx.camera.core.Preview
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,39 +30,53 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     onNavigateToLabeler: () -> Unit,
+    onNavigateToSettings: () -> Unit,
     onRequestPermissions: () -> Unit,
     viewModel: SessionViewModel = hiltViewModel(),
 ) {
     val state by viewModel.sessionState.collectAsState()
     val candidateCount by viewModel.candidateCount.collectAsState()
+    val cameraPreview by viewModel.cameraPreview.collectAsState()
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("ArcShield — Shadow Mode") })
+            TopAppBar(
+                title = { Text("ArcShield — Shadow Mode") },
+                actions = {
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                },
+            )
         }
     ) { padding ->
         Column(
@@ -57,6 +86,33 @@ fun MainScreen(
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+
+            // ---- Camera preview (BUILDING or RECORDING, phone camera only) --
+            val showPreview = cameraPreview != null &&
+                (state is SessionViewModel.SessionState.Building ||
+                 state is SessionViewModel.SessionState.Recording)
+
+            if (showPreview) {
+                key(cameraPreview) {
+                    val preview = cameraPreview!!
+                    DisposableEffect(preview) {
+                        onDispose { preview.setSurfaceProvider(null) }
+                    }
+                    AndroidView(
+                        factory = { ctx ->
+                            PreviewView(ctx).apply {
+                                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                            }
+                        },
+                        update = { previewView ->
+                            preview.setSurfaceProvider(previewView.surfaceProvider)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f),
+                    )
+                }
+            }
 
             // ---- Status card --------------------------------------------
             StatusCard(state = state, candidateCount = candidateCount)

@@ -1,11 +1,28 @@
+/*
+ * Intellectual Property and Trademark Notice
+ *
+ * mp4Real™, ArcShield™, CIAER™, and CIAER+™ are trademarks of Capps Consulting
+ * Company LLC. The multi-track cyber-physical capture architecture, the
+ * application of log-likelihood ratio (LLR) gating to multimodal industrial
+ * decision events, and the behavioral codebook discretization methods described
+ * in this document are the proprietary intellectual property of Kahn Capps and
+ * Capps Consulting Company LLC. Unauthorized commercial use, reproduction, or
+ * implementation of the mp4Real™ container architecture or the CIAER™ and CIAER+™
+ * schemas without explicit licensing is prohibited. All rights reserved.
+ */
 package com.capsconc.arcshield.app.ui
 
 import android.content.Context
 import android.os.SystemClock
+import androidx.camera.core.Preview
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.capsconc.arcshield.app.BuildConfig
+import com.capsconc.arcshield.app.di.NullBiometricSource
+import com.capsconc.arcshield.app.settings.AccelSourceSetting
+import com.capsconc.arcshield.app.settings.BiometricSourceSetting
+import com.capsconc.arcshield.app.settings.SettingsRepository
+import com.capsconc.arcshield.app.settings.VideoSourceSetting
 import com.capsconc.arcshield.capture.CaptureSession
 import com.capsconc.arcshield.capture.CaptureSessionConfig
 import com.capsconc.arcshield.codec.AndroidMp4RealMuxer
@@ -16,9 +33,13 @@ import com.capsconc.arcshield.labeler.CandidateWindowLog
 import com.capsconc.arcshield.llr.CandidateWindow
 import com.capsconc.arcshield.llr.LlrConfig
 import com.capsconc.arcshield.schema.biometric.BiometricSource
-import com.capsconc.arcshield.schema.capture.CaptureSourceFactory
+import com.capsconc.arcshield.schema.capture.CaptureSource
 import com.capsconc.arcshield.schema.imu.AccelSource
-import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
+import com.capsconc.arcshield.source.camerax.CameraXCaptureSource
+import com.capsconc.arcshield.source.imu.PhoneImuAccelSource
+import com.capsconc.arcshield.source.meta.MetaRayBansCaptureSource
+import com.capsconc.arcshield.source.polar.PolarBleBiometricSource
+import com.capsconc.arcshield.source.polar.PolarDeviceType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -36,11 +57,7 @@ import javax.inject.Inject
 @HiltViewModel
 class SessionViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val biometricSource: BiometricSource,
-    private val accelSource: AccelSource,
-    private val captureSourceFactory: CaptureSourceFactory,
-    @Suppress("UnusedPrivateMember")
-    private val plcTelemetrySource: PlcTelemetrySource,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
 
     // ---- Session state ----------------------------------------------------
@@ -59,6 +76,9 @@ class SessionViewModel @Inject constructor(
     private val _candidateCount = MutableStateFlow(0)
     val candidateCount: StateFlow<Int> = _candidateCount.asStateFlow()
 
+    private val _cameraPreview = MutableStateFlow<Preview?>(null)
+    val cameraPreview: StateFlow<Preview?> = _cameraPreview.asStateFlow()
+
     // ---- Internal session objects ----------------------------------------
 
     private var activeSession: CaptureSession? = null
@@ -70,8 +90,6 @@ class SessionViewModel @Inject constructor(
 
     // ---- Session lifecycle -----------------------------------------------
 
-    // Called from MainActivity after permission grant.
-    // lifecycleOwner is the Activity (used by CameraX for teardown).
     fun startSession(lifecycleOwner: LifecycleOwner) {
         if (_sessionState.value != SessionState.Idle) return
 
@@ -85,17 +103,25 @@ class SessionViewModel @Inject constructor(
                 val outputDir = File(context.filesDir, "sessions").also { it.mkdirs() }
                 val outputFile = File(outputDir, "session_${timestamp}_$sessionId.mp4")
 
-                // CandidateWindowLog goes under shadow_mode/ so LabelerViewModel.listShiftLogs()
-                // finds it automatically.
                 val shadowDir = File(context.filesDir, "shadow_mode").also { it.mkdirs() }
                 val logFile = File(shadowDir, "${timestamp}_$sessionId.ndjson")
-                val captureSource = captureSourceFactory.create(lifecycleOwner)
+
+                val preview = if (settings.videoSource.value == VideoSourceSetting.PHONE_CAMERA) {
+                    Preview.Builder().build().also { _cameraPreview.value = it }
+                } else {
+                    null
+                }
+
+                val biometricSource = makeBiometricSource()
+                val accelSource = makeAccelSource()
+                val captureSource = makeCaptureSource(lifecycleOwner, preview)
+
                 val muxer = AndroidMp4RealMuxer(outputFile)
                 val sessionMetadata = SessionMetadata(
                     sessionId         = sessionId,
-                    operatorId        = "operator_${BuildConfig.POLAR_DEVICE_ID.takeLast(4).ifBlank { "0000" }}",
-                    facilityId        = BuildConfig.FACILITY_ID,
-                    lineId            = BuildConfig.LINE_ID,
+                    operatorId        = "operator_${settings.polarDeviceId.value.takeLast(4).ifBlank { "0000" }}",
+                    facilityId        = settings.facilityId.value,
+                    lineId            = settings.lineId.value,
                     captureSourceId   = captureSource.sourceId,
                     biometricSourceId = biometricSource.sourceId,
                     sessionStartNanos = SystemClock.elapsedRealtimeNanos(),
@@ -107,15 +133,16 @@ class SessionViewModel @Inject constructor(
                 windowLog = log
 
                 val config = CaptureSessionConfig(
-                    outputDir        = outputDir,
-                    sessionId        = sessionId,
-                    operatorId       = sessionMetadata.operatorId,
-                    facilityId       = BuildConfig.FACILITY_ID,
-                    lineId           = BuildConfig.LINE_ID,
-                    captureSourceId  = captureSource.sourceId,
+                    outputDir         = outputDir,
+                    sessionId         = sessionId,
+                    operatorId        = sessionMetadata.operatorId,
+                    facilityId        = settings.facilityId.value,
+                    lineId            = settings.lineId.value,
+                    captureSourceId   = captureSource.sourceId,
                     biometricSourceId = biometricSource.sourceId,
-                    llrConfig        = LlrConfig(shadowMode = true),
-                    metaTracks       = listOf(
+                    iFrameDurationMs  = settings.iFrameDurationS.value * 1000L,
+                    llrConfig         = LlrConfig(shadowMode = true),
+                    metaTracks        = listOf(
                         TrackType.AccelMeta,
                         TrackType.BiometricMeta,
                         TrackType.ThermalMeta,
@@ -128,7 +155,6 @@ class SessionViewModel @Inject constructor(
                 )
                 activeSession = session
 
-                // Collect candidate windows → log + count update.
                 viewModelScope.launch {
                     session.candidateWindows.collect { window ->
                         try { log.append(window) } catch (_: Exception) {}
@@ -140,6 +166,7 @@ class SessionViewModel @Inject constructor(
                 _sessionState.value = SessionState.Recording
 
             } catch (e: Exception) {
+                _cameraPreview.value = null
                 _sessionState.value = SessionState.Error(e.message ?: "session failed")
             }
         }
@@ -155,6 +182,7 @@ class SessionViewModel @Inject constructor(
         } finally {
             activeSession = null
             windowLog = null
+            _cameraPreview.value = null
         }
     }
 
@@ -166,5 +194,61 @@ class SessionViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         activeSession?.close()
+        _cameraPreview.value = null
+    }
+
+    // ---- Per-session source factories ------------------------------------
+
+    private fun makeBiometricSource(): BiometricSource {
+        val deviceId = settings.polarDeviceId.value
+        return when (settings.biometricSource.value) {
+            BiometricSourceSetting.NONE -> NullBiometricSource()
+            BiometricSourceSetting.POLAR_H10 -> {
+                if (deviceId.isBlank()) return NullBiometricSource()
+                try {
+                    PolarBleBiometricSource.create(
+                        context    = context,
+                        deviceId   = deviceId,
+                        deviceType = PolarDeviceType.H10,
+                        scope      = viewModelScope,
+                    ).also { it.connect() }
+                } catch (_: Exception) {
+                    NullBiometricSource()
+                }
+            }
+            BiometricSourceSetting.POLAR_VERITY_SENSE -> {
+                if (deviceId.isBlank()) return NullBiometricSource()
+                try {
+                    PolarBleBiometricSource.create(
+                        context    = context,
+                        deviceId   = deviceId,
+                        deviceType = PolarDeviceType.VERITY_SENSE,
+                        scope      = viewModelScope,
+                    ).also { it.connect() }
+                } catch (_: Exception) {
+                    NullBiometricSource()
+                }
+            }
+        }
+    }
+
+    private fun makeAccelSource(): AccelSource? = when (settings.accelSource.value) {
+        AccelSourceSetting.PHONE_IMU -> PhoneImuAccelSource(context)
+        // POLAR: let CaptureSession fall back to biometricSource.accelerometer()
+        AccelSourceSetting.POLAR -> null
+    }
+
+    private fun makeCaptureSource(lifecycleOwner: LifecycleOwner, preview: Preview?): CaptureSource {
+        return when (settings.videoSource.value) {
+            VideoSourceSetting.PHONE_CAMERA -> CameraXCaptureSource(context, lifecycleOwner, preview = preview)
+            VideoSourceSetting.GLASSES -> {
+                val mac = settings.glassesDeviceMac.value
+                if (MetaRayBansCaptureSource.isAvailable(context, mac)) {
+                    MetaRayBansCaptureSource(context, lifecycleOwner, mac)
+                } else {
+                    CameraXCaptureSource(context, lifecycleOwner, preview = preview)
+                }
+            }
+        }
     }
 }
