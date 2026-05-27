@@ -40,4 +40,10 @@ alpha = 0.1
 # Values are the operator_id hashes used in CIAER+ event records.
 # Phase 3 upgrade path: replace list lookup with signed-token verification
 # once MCP header support lands upstream.
-write_operators = ["op_hash_abc123"]   # seed operator from April 8 PIE demo
+write_operators = ["op_hash_abc123", "op_hash_kc_7a3f2b"]   # seed + April 8 PIE demo operator
+
+[codebook]
+# Path to the hand-curated primitives JSON file (FIG. 8, CLAUDE.md §5.1).
+# Relative paths are resolved relative to this config file (same rule as corpus_dir).
+# Omit this section to use the package default (backend/codebook/primitives.json).
+path = "../codebook/primitives.json"

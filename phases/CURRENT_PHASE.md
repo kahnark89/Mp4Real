@@ -20,8 +20,8 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-27 — Claude Code — Nonlinear HRV (SD1/SD2/SampEn) wired into Λ_bio gate; OGC pending_R_phys deferred queue; SQLite backend live; 11 MCP tools |
-| **Build is** | 🟢 healthy — debug APK assembles, 144 Android unit tests green, 90 Python backend tests green |
+| **Last working session** | 2026-05-27 — Claude Code — Phase 1 hand-curated codebook (PRIM-001 from seed event); CosineCodebookMatcher; 4 new MCP tools; 42 codebook + 80 backend tests green |
+| **Build is** | 🟢 healthy — debug APK assembles, 144 Android unit tests green, 122 Python tests green (80 backend + 42 codebook) |
 
 ---
 
@@ -32,7 +32,7 @@ Things being worked on right now. Move items here from §3 (Backlog) when starti
 _No active items — see §5 for recently completed work. Next: run Λ_env-only shadow sessions (backlog item #1)._
 
 | ID | Item | Module(s) | Started | Owner | State |
-|---|---|---|---|---|---|
+|---|---|---|---|---|---| 
 
 ---
 
@@ -98,6 +98,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-27 | W-025 | **Phase 1 hand-curated codebook** — `backend/codebook/` package: `schema.py` (Primitive, CodebookMatchResult, CodebookExpansionRequest), `matcher.py` (extract_cause_features, cosine_similarity on per-instrument ratio vectors, compute_delta_vector, CosineCodebookMatcher), `codebook.py` (PrimitiveCodebook load/save/expand), `primitives.json` (PRIM-001 hand-curated from April 8 PIE seed event). 42 unit tests (feature extraction, cosine similarity math, delta vector, matcher match/novel/theta_tc, codebook CRUD, HITL expand, save+reload). 4 new MCP tools in server.py: `codebook_match`, `codebook_list_primitives`, `codebook_get_primitive`, `codebook_expand` (write-auth gated). Codebook loaded in lifespan context; matcher rebuilt on expand. config.toml `[codebook]` section + both operator hashes in write_operators. 80 backend + 42 codebook tests green. | CLAUDE.md §5.1 / §5.3 / FIG. 8. Phase 3 upgrade path: replace ratio cosine with learned per-track Transformer embeddings + VICReg + RVQ (§5.2). |
 | 2026-05-27 | W-024 | **Nonlinear HRV (SD1/SD2/SampEn) wired into Λ_bio gate** — `NonlinearHrv.kt`: pure sdnn/rmssd/sd1/sd2/sampleEntropy (O(N²) SampEn, bounded by rolling window); `RollingBioStats.BioSnapshot` extended (sd1Ms, sd2Ms, sampEn, hasNonlinearHrv); `LlrBaseline` +7 NL HRV fields (all defaulted for backward compat); `LlrBaselineBuilder` adds `computeNonlinearHrvStats()` using 20-beat / stride-10 sub-windows; `LlrGate` replaces `lambdaHrvNl = 0f` stub with Gaussian-shift GLR, NaN-guarded for SampEn; `NonlinearHrvTest` 14 unit tests. Fires only when `baseline.nonlinearHrvAvailable && bioSnap.hasNonlinearHrv` (requires H10 with ≥20 R-R in window). 144 Android unit tests green. | Phase 2 item — no device required. |
 | 2026-05-27 | W-023 | **[MCP-MOD-004] Per-operator write auth** — `[auth] write_operators = [...]` in `config.toml`; `_check_write_auth()` helper in `build_server()`; `ingest_event` checks `event.operator_id`; `update_graph_weight` checks `updated_by`; empty allowlist = no restriction (backward compatible); 6 new auth tests (no-allowlist pass, in-list pass, denied for both tools); 68/68 tests green. | W-022 (SQLite) + W-023 (auth) land in same PR. |
 | 2026-05-27 | W-022 | **[MCP-MOD-001] `SqliteCorpusBackend` + [MOD-003] value-proximity scoring** — `sqlite_backend.py`: WAL journal, `events` + `weight_audit` tables, 4 indexed columns; `query_by_cause_signature`: escalation_state index pre-filter then `1/(1+|q_val−s_val|)` per shared instrument, graph_weight 10% tiebreaker; `corpus_depth` O(1) in-memory counter. Contract fixture extended to `params=["json","sqlite"]`; 58/58 tests (29×2). | |
@@ -421,6 +422,14 @@ YYYY-MM-DD — Kahn / Claude Code session #N
 ```
 
 ```
+2026-05-27 — Claude Code — W-025: Phase 1 hand-curated codebook
+  - What was worked on: backend/codebook/ package — schema, matcher, codebook, primitives.json; 42 unit tests; 4 new MCP tools in server.py; config.toml [codebook] section.
+  - What changed in state above: W-025 added to §5; §10 MCP tool count updated 11→15; build status reflects 80+42=122 Python tests green.
+  - Surprises: cosine similarity on raw values would be dominated by high-magnitude features (die_pressure_psi >> crammer_amps). Fixed with per-instrument ratio normalization: event_val / prim_canonical_val, making the feature space scale-invariant. Documented Phase 1 known limitation (uniform scalar factor gives score=1.0 — handled by Transformer absolute-value context in Phase 3).
+  - Next session pickup point: install APK on device, run first Λ_env-only shadow session, label candidate windows, begin 10–15-event warm corpus (backlog item #1).
+```
+
+```
 2026-05-27 — Claude Code — Phase 1 Android complete + backend Phase 2 start
   - Wired source-polar into Hilt DI (PolarBleBiometricSource.create, connect()); ε_sync callback (registerSyncListener → EpsSyncCoordinator); clock reset on reconnect.
   - Vendor-agnostic capture: CaptureSourceFactory interface; DefaultCaptureSourceFactory (BT bond check → Meta Ray-Ban or CameraX); source-meta-raybans stub module; GLASSES_DEVICE_ID buildConfigField.
@@ -464,7 +473,7 @@ Single-source summary of the Python backend and MCP corpus server. Full implemen
 
 **Run tests:** `cd backend/api && python -m pytest tests/ -v --asyncio-mode=auto`
 
-### 11 MCP tools (server.py)
+### 15 MCP tools (server.py)
 
 | Tool | Purpose |
 |---|---|
@@ -479,6 +488,10 @@ Single-source summary of the Python backend and MCP corpus server. Full implemen
 | `record_r_phys` | Record R_phys arrival and fire OGC weight update |
 | `expire_r_phys_deadlines` | Mark overdue PENDING events INDETERMINATE |
 | `list_pending_r_phys` | List events awaiting R_phys arrival, sorted by deadline |
+| `codebook_match` | Match cause signature against codebook primitives — FIG. 8 cosine-similarity gate |
+| `codebook_list_primitives` | List all primitives with summary metadata |
+| `codebook_get_primitive` | Full primitive record by ID |
+| `codebook_expand` | HITL path: add a new primitive from a validated corpus event (write-auth) |
 
 ### Corpus state
 

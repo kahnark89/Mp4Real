@@ -62,6 +62,8 @@ from mcp.server.fastmcp import FastMCP
 # Local imports — sys.path adjustment for running server.py directly
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).parent))
+# backend/ on path so `import codebook` resolves backend/codebook/__init__.py
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from arcshield.corpus.backend import (
     EventNotFoundError,
@@ -79,6 +81,9 @@ from arcshield.schema import (
     RPhysRecord,
     RPhysStatus,
 )
+from codebook.codebook import PrimitiveCodebook
+from codebook.matcher import CosineCodebookMatcher
+from codebook.schema import CodebookExpansionRequest
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is the MCP JSON-RPC channel
@@ -106,8 +111,7 @@ def load_config(config_path: str | Path = "config.toml") -> dict:
     with open(path, "rb") as f:
         config = tomllib.load(f)
 
-    # Resolve relative backend paths to be relative to the config file, not CWD.
-    # This makes the server invocable from any working directory (MOD-002).
+    # Resolve relative paths to be relative to the config file, not CWD (MOD-002).
     config_dir = path.parent
     backend_type = config.get("backend", {}).get("type", "json")
     backend_section = config.get("backend", {}).get(backend_type, {})
@@ -115,6 +119,13 @@ def load_config(config_path: str | Path = "config.toml") -> dict:
         raw = backend_section["corpus_dir"]
         if not Path(raw).is_absolute():
             backend_section["corpus_dir"] = str(config_dir / raw)
+
+    # Resolve codebook path relative to config file
+    codebook_section = config.setdefault("codebook", {})
+    if "path" in codebook_section:
+        raw_cb = codebook_section["path"]
+        if not Path(raw_cb).is_absolute():
+            codebook_section["path"] = str(config_dir / raw_cb)
 
     return config
 
@@ -168,6 +179,10 @@ def build_server(config: dict) -> FastMCP:
         "ogc_alpha"  : ogc_alpha,
     }
 
+    # Codebook path: from config or package default
+    _codebook_path_str = config.get("codebook", {}).get("path")
+    _codebook_path = Path(_codebook_path_str) if _codebook_path_str else None
+
     # ------------------------------------------------------------------
     # Auth helper — checked before any write reaches the backend
     # ------------------------------------------------------------------
@@ -199,8 +214,12 @@ def build_server(config: dict) -> FastMCP:
             "Backend '%s' open. facility=%s corpus_depth=%d",
             backend_type, facility_id, backend.corpus_depth,
         )
+        codebook = PrimitiveCodebook.load(_codebook_path)
+        matcher = CosineCodebookMatcher(codebook.list_all())
+        log.info("Codebook loaded: %d primitive(s)", len(codebook))
+        state: dict = {"backend": backend, "codebook": codebook, "matcher": matcher}
         try:
-            yield {"backend": backend}
+            yield state
         finally:
             await backend.close()
             log.info("Backend closed.")
@@ -721,6 +740,214 @@ def build_server(config: dict) -> FastMCP:
         except Exception as exc:
             log.exception("get_divergent_chains failed")
             return _error("get_divergent_chains", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: codebook_match — score cause signature against all primitives
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Match a cause sensor signature against the Phase 1 behavioral codebook "
+            "and return the best-matching primitive (FIG. 8 path 803→804).\n\n"
+            "If tc_score >= theta_tc (the primitive's match threshold), the event "
+            "maps to an existing primitive — is_novel=false. The delta_vector gives "
+            "the fractional deviation of each sensor from the primitive's canonical.\n\n"
+            "If tc_score < theta_tc, is_novel=true — the event should be stored "
+            "uncompressed and queued for HITL validation (FIG. 8 path 806→807). "
+            "After validation, use codebook_expand to add the new primitive.\n\n"
+            "Args:\n"
+            "  sensor_readings: JSON array of {instrument_id, value, unit, confidence}\n"
+            "  escalation_state: current escalation level 0–3\n"
+            "  acoustic_profile: optional JSON object {spectral_delta_db, dominant_freq_hz}\n"
+            "  biometric_snapshot: optional JSON object {hr_bpm, hrv_rmssd_ms, accelerometer_mag}"
+        )
+    )
+    async def codebook_match(
+        ctx,
+        sensor_readings  : str,
+        escalation_state : int,
+        acoustic_profile : str | None = None,
+        biometric_snapshot: str | None = None,
+    ) -> str:
+        backend = ctx.request_context.lifespan_context["backend"]
+        matcher: CosineCodebookMatcher = ctx.request_context.lifespan_context["matcher"]
+        try:
+            raw_readings  = json.loads(sensor_readings)
+            raw_acoustic  = json.loads(acoustic_profile)  if acoustic_profile  else None
+            raw_bio       = json.loads(biometric_snapshot) if biometric_snapshot else None
+            result = matcher.match_from_cause(
+                sensor_readings=raw_readings,
+                acoustic_profile=raw_acoustic,
+                biometric_snapshot=raw_bio,
+                escalation_state=escalation_state,
+            )
+            return _ok(
+                "codebook_match",
+                backend.facility_id,
+                backend.corpus_depth,
+                matched_primitive_id = result.matched_primitive_id,
+                failure_mode_tag     = result.failure_mode_tag,
+                tc_score             = result.tc_score,
+                theta_tc             = result.theta_tc,
+                is_novel             = result.is_novel,
+                shared_instruments   = result.shared_instruments,
+                delta_vector         = result.delta_vector,
+                all_scores           = result.all_scores,
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            return _error("codebook_match", "INVALID_PARAMS", str(exc))
+        except Exception as exc:
+            log.exception("codebook_match failed")
+            return _error("codebook_match", "BACKEND_ERROR", str(exc))
+
+    # ------------------------------------------------------------------
+    # Tool: codebook_list_primitives — list all primitives (summary)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "List all behavioral primitives in the Phase 1 codebook with summary "
+            "metadata. Does not return full canonical sensor readings — use "
+            "codebook_get_primitive for the full record.\n\n"
+            "Returns an empty list on a fresh deployment before HITL expansion."
+        )
+    )
+    async def codebook_list_primitives(ctx) -> str:
+        backend = ctx.request_context.lifespan_context["backend"]
+        codebook: PrimitiveCodebook = ctx.request_context.lifespan_context["codebook"]
+        primitives = codebook.list_all()
+        summaries = [
+            {
+                "primitive_id"         : p.primitive_id,
+                "failure_mode_tag"     : p.failure_mode_tag,
+                "srk_level"            : p.srk_level,
+                "theta_tc"             : p.theta_tc,
+                "canonical_escalation_state": p.canonical_escalation_state,
+                "canonical_action_type": p.canonical_action_type,
+                "source_event_count"   : len(p.source_event_ids),
+                "created_at"           : str(p.created_at),
+                "created_by"           : p.created_by,
+            }
+            for p in primitives
+        ]
+        return _ok(
+            "codebook_list_primitives",
+            backend.facility_id,
+            backend.corpus_depth,
+            primitive_count  = len(primitives),
+            failure_modes    = codebook.list_failure_modes(),
+            primitives       = summaries,
+        )
+
+    # ------------------------------------------------------------------
+    # Tool: codebook_get_primitive — full primitive record by ID
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Retrieve the full primitive record for a specific primitive_id, "
+            "including canonical sensor readings, acoustic profile, shadow actions, "
+            "and provenance metadata.\n\n"
+            "Args:\n"
+            "  primitive_id: e.g. 'PRIM-001'"
+        )
+    )
+    async def codebook_get_primitive(ctx, primitive_id: str) -> str:
+        backend = ctx.request_context.lifespan_context["backend"]
+        codebook: PrimitiveCodebook = ctx.request_context.lifespan_context["codebook"]
+        prim = codebook.get_primitive(primitive_id)
+        if prim is None:
+            return _error(
+                "codebook_get_primitive",
+                "NOT_FOUND",
+                f"Primitive '{primitive_id}' not found in codebook.",
+            )
+        return _ok(
+            "codebook_get_primitive",
+            backend.facility_id,
+            backend.corpus_depth,
+            primitive = json.loads(prim.model_dump_json()),
+        )
+
+    # ------------------------------------------------------------------
+    # Tool: codebook_expand — HITL path: add a new primitive (write-auth)
+    # ------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "HITL expansion path (FIG. 8 step 808): add a new behavioral primitive to "
+            "the codebook from a validated corpus event.\n\n"
+            "Intended workflow:\n"
+            "  1. codebook_match returns is_novel=true for an event.\n"
+            "  2. Human reviews the event in debrief-ui and confirms the failure mode.\n"
+            "  3. Call codebook_expand with the source event's ID and the confirmed tag.\n"
+            "  4. The new primitive is persisted to the codebook JSON file.\n\n"
+            "Requires allow_writes=true in config.toml.\n"
+            "Per-operator auth: requested_by must be in write_operators if set.\n\n"
+            "Args:\n"
+            "  source_event_id: UUID of the validated corpus event\n"
+            "  confirmed_failure_mode_tag: ontology tag confirmed by the human reviewer\n"
+            "  description: free-text description of the primitive\n"
+            "  requested_by: operator_id hash of the reviewer\n"
+            "  theta_tc_override: optional match threshold override (default: codebook default)"
+        )
+    )
+    async def codebook_expand(
+        ctx,
+        source_event_id            : str,
+        confirmed_failure_mode_tag : str,
+        description                : str,
+        requested_by               : str,
+        theta_tc_override          : float | None = None,
+    ) -> str:
+        if not allow_writes:
+            return _error(
+                "codebook_expand", "WRITE_DISABLED",
+                "This server is configured read-only (allow_writes=false in config.toml).",
+            )
+        if auth_err := _check_write_auth(requested_by, "codebook_expand"):
+            return auth_err
+
+        backend = ctx.request_context.lifespan_context["backend"]
+        codebook: PrimitiveCodebook = ctx.request_context.lifespan_context["codebook"]
+        state = ctx.request_context.lifespan_context
+
+        try:
+            uuid = UUID(source_event_id)
+            event = await backend.get_event(uuid)
+            event_dict = json.loads(event.model_dump_json())
+
+            req = CodebookExpansionRequest(
+                source_event_id            = source_event_id,
+                confirmed_failure_mode_tag = confirmed_failure_mode_tag,
+                description                = description,
+                theta_tc_override          = theta_tc_override,
+                requested_by               = requested_by,
+            )
+            new_id = codebook.add_from_corpus_event(event_dict, req)
+            codebook.save(_codebook_path)
+            # Rebuild matcher so subsequent codebook_match calls see the new primitive
+            state["matcher"] = CosineCodebookMatcher(codebook.list_all())
+
+            log.info(
+                "Codebook expanded: %s → %s (failure_mode=%s)",
+                source_event_id, new_id, confirmed_failure_mode_tag,
+            )
+            return _ok(
+                "codebook_expand",
+                backend.facility_id,
+                backend.corpus_depth,
+                new_primitive_id           = new_id,
+                confirmed_failure_mode_tag = confirmed_failure_mode_tag,
+                codebook_size              = len(codebook),
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            return _error("codebook_expand", "INVALID_PARAMS", str(exc))
+        except EventNotFoundError as exc:
+            return _error("codebook_expand", "NOT_FOUND", str(exc))
+        except Exception as exc:
+            log.exception("codebook_expand failed")
+            return _error("codebook_expand", "BACKEND_ERROR", str(exc))
 
     return mcp
 

@@ -1,0 +1,47 @@
+{
+  "codebook_version": "1.0",
+  "theta_tc_default": 0.70,
+  "primitives": [
+    {
+      "primitive_id": "PRIM-001",
+      "failure_mode_tag": "material_segregation_funnel_flow",
+      "description": "PVC regrind fines bridging in the crammer feed throat / funnel. Fines pack under crammer pressure and form an arch that restricts gravity feed into the screw. Symptom signature: crammer amp spike (intermittent, ≥40% above steady-state), secondary Zone 1 temp depression (throughput-driven, not heater failure).",
+      "srk_level": "KNOWLEDGE",
+      "canonical_sensor_readings": [
+        {"instrument_id": "crammer_amps", "value": 67.3, "unit": "A",    "confidence": 0.98},
+        {"instrument_id": "zone1_temp_f", "value": 348.0, "unit": "°F", "confidence": 0.97},
+        {"instrument_id": "die_pressure_psi", "value": 2840.0, "unit": "psi", "confidence": 0.96},
+        {"instrument_id": "motor_amps",   "value": 88.5, "unit": "A",    "confidence": 0.98},
+        {"instrument_id": "melt_temp_f",  "value": 371.0, "unit": "°F", "confidence": 0.95}
+      ],
+      "canonical_acoustic_profile": {
+        "spectral_delta_db": 4.2,
+        "dominant_freq_hz": 210,
+        "note": "elevated crammer rattle at crammer resonance frequency"
+      },
+      "canonical_escalation_state": 2,
+      "theta_tc": 0.70,
+      "canonical_action_type": "MECHANICAL_INSPECT",
+      "canonical_action_summary": "Reduce crammer to idle, rake feed throat with brass rod (3 passes) to break the fines arch, restore crammer speed. Verify crammer amp normalization before leaving.",
+      "canonical_shadow_actions": [
+        {
+          "action_type": "PROCESS_HALT",
+          "rejection_rationale": "Full halt unnecessary at escalation_state 2. Bridging is recoverable without stopping the screw. Halt introduces cold-plug risk and ~20 min restart penalty."
+        },
+        {
+          "action_type": "PARAMETER_ADJUST",
+          "rejection_rationale": "Increasing Zone 1 setpoint masks root cause. Temp drop is a throughput effect — fix the feed flow, temp self-corrects. Setpoint chase risks overshoot once bridge clears."
+        }
+      ],
+      "created_at": "2026-04-08T07:48:00Z",
+      "created_by": "op_hash_kc_7a3f2b",
+      "source_event_ids": ["6ab2942f-3a22-4824-9b9a-fb829e414e82"],
+      "domain_context": {
+        "process": "pvc_extrusion",
+        "line": "PPVC_LINE_1",
+        "material": "PVC_regrind_high_fines",
+        "note": "Derived from April 8 2026 PIE demonstration — prior art priority date"
+      }
+    }
+  ]
+}
