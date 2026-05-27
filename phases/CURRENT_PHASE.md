@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | _0 primitives_ |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-27 — Claude Code — SQLite backend (MCP-MOD-001) + MOD-003 value-proximity scoring; Phase 1 Android code complete |
+| **Last working session** | 2026-05-27 — Claude Code — MCP-MOD-004 per-operator write auth; SQLite backend (MCP-MOD-001) + MOD-003 value-proximity scoring; Phase 1 Android code complete |
 | **Build is** | 🟢 healthy — debug APK assembles, 134 Android unit tests green |
 
 ---
@@ -29,13 +29,10 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 
 Things being worked on right now. Move items here from §3 (Backlog) when starting; move to §5 (Completed) on acceptance. Limit WIP to 3 active items at a time — more than that means something is actually blocked and should be in §4.
 
+_No active items — see §5 for recently completed work. Next: run Λ_env-only shadow sessions (backlog item #1)._
+
 | ID | Item | Module(s) | Started | Owner | State |
 |---|---|---|---|---|---|
-| W-022 | [MCP-MOD-001] `SqliteCorpusBackend` + MOD-003 value-proximity scoring | backend/api | 2026-05-27 | Claude Code | In progress |
-
-### Per-item working notes
-
-**W-022:** aiosqlite-backed backend; `events` table with indexed columns (failure_mode_tag, escalation_state, graph_weight, operator_id); `weight_audit` table; value-proximity scoring `1 / (1 + |q_val − s_val|)` in `query_by_cause_signature` (MOD-003). Contract test fixture extended to `params=["json", "sqlite"]`.
 
 ---
 
@@ -73,9 +70,9 @@ Ordered by intended pickup, not by priority alone. Top of list is next.
 4. **Implement nonlinear HRV (SD1/SD2 + sample entropy) in `core-llr`** — Phase 2 once H10 ECG is live. Currently stubbed as `lambdaHrvNl = 0f` in `LlrGate.kt`.
 5. ~~**Scaffold `source-camerax` module** and wire `Λ_motion` (frame-to-frame video energy) in `LlrGate.kt`.~~ **DONE 2026-05-25** — see §5.
 6. ~~**Build `tools/shadow-mode-labeler`** as a minimal Compose screen reading candidate windows from local storage.~~ **DONE 2026-05-25** — see §5.
-7. **[MCP-MOD-001] `SqliteCorpusBackend`** — Trigger: `corpus_depth > ~500` OR `list_failure_modes` latency > 200 ms. New file `backend/api/arcshield/corpus/backends/sqlite_backend.py`. Use `aiosqlite`; indexed columns: `failure_mode_tag`, `escalation_state`, `graph_weight`, `operator_id`. Add `"sqlite"` to the `params` fixture in `tests/test_corpus_backend_contract.py` — all 28 contract tests run automatically. Factory entry: `get_backend("sqlite", ...)` in `backends/__init__.py`. Config switch: `config.toml [backend] type = "sqlite"`.
-8. **[MCP-MOD-003] `query_by_cause_signature` similarity upgrade** — Phase 2: after `escalation_state` index pre-filter, compute per-instrument normalized distance `1 / (1 + |query_val − stored_val|)` instead of coverage-only score. Update the `IMPLEMENTATION NOTE` marker in `server.py` and the abstract method docstring in `backend.py`. Phase 3: replace with embedding ANN (HNSW) once corpus exceeds ~200 events per `failure_mode_tag`.
-9. **[MCP-MOD-004] Per-operator write auth** — Phase 2. Add `[auth] write_operators = [...]` to `config.toml`. In `server.py` `ingest_event` and `update_graph_weight`, verify `event.operator_id` / `updated_by` against the allowlist; reject with `_error(..., "AUTH_FAILED", ...)`. Token passed as tool argument; upgrade to MCP header when header support lands.
+7. ~~**[MCP-MOD-001] `SqliteCorpusBackend`**~~ **DONE 2026-05-27 (W-022)** — see §5.
+8. ~~**[MCP-MOD-003] `query_by_cause_signature` similarity upgrade**~~ **DONE 2026-05-27 (W-022)** — value-proximity live in SqliteCorpusBackend. Phase 3 (embedding ANN) still deferred.
+9. ~~**[MCP-MOD-004] Per-operator write auth**~~ **DONE 2026-05-27 (W-023)** — see §5.
 10. ~~**[MCP-MOD-007] `get_divergent_chains` stub** — Add as 8th MCP tool in `server.py` returning `NOT_AVAILABLE` when `GraphCorpusBackend` is absent.~~ **DONE 2026-05-26 (W-014)** — see §5. Native graph traversal still lands with `GraphCorpusBackend` (Phase 3).
 
 When pulling an item from this list into §1, copy its text verbatim and assign a W-### ID.
@@ -101,6 +98,8 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-27 | W-023 | **[MCP-MOD-004] Per-operator write auth** — `[auth] write_operators = [...]` in `config.toml`; `_check_write_auth()` helper in `build_server()`; `ingest_event` checks `event.operator_id`; `update_graph_weight` checks `updated_by`; empty allowlist = no restriction (backward compatible); 6 new auth tests (no-allowlist pass, in-list pass, denied for both tools); 68/68 tests green. | W-022 (SQLite) + W-023 (auth) land in same PR. |
+| 2026-05-27 | W-022 | **[MCP-MOD-001] `SqliteCorpusBackend` + [MOD-003] value-proximity scoring** — `sqlite_backend.py`: WAL journal, `events` + `weight_audit` tables, 4 indexed columns; `query_by_cause_signature`: escalation_state index pre-filter then `1/(1+|q_val−s_val|)` per shared instrument, graph_weight 10% tiebreaker; `corpus_depth` O(1) in-memory counter. Contract fixture extended to `params=["json","sqlite"]`; 58/58 tests (29×2). | |
 | 2026-05-27 | W-021 | **Bug fixes** — `VideoPlayerView` always showed placeholder (`remember(exoPlayer){mediaItemCount>0}` baked in false at first render before async `bindVideoFile()` completed); fixed via `hasVideo: StateFlow<Boolean>` in `LabelerViewModel`. Silent `IOException` in `candidateWindows` collect swallowed by `SupervisorJob` could freeze count display; wrapped in try-catch. | PR #3 merged to main at `307a2c8`. |
 | 2026-05-27 | W-020 | **Gemini session implementation** — (1) `ProvenanceClass` / `SealedProvenanceTag` Phase 4 schema hooks in `core-schema`; (2) ExoPlayer offline playback in `shadow-mode-labeler` with PTS seek (`detectedAtNanos − sessionStartNanos − 30s`); session start nanos written as first-line meta in `.ndjson`; `ConvergenceRouter` (CONFIRMED/Q' routing); (3) `VoiceElicitationManager` TTS→STT→Claude entity-resolution pipeline; Hollowell Line 1 jargon map as system prompt; results keyed by `detectedAtNanos`; `CandidateWindowRow` Mic button; `LabelExportEntry` with provenance + elicited action fields. | PR #2 merged to main at `1d03eff`. 221 unit tests green. |
 | 2026-05-27 | W-019 | **Polar H10 offline backfill + Bluetooth earbud audio routing** — `fetchOfflineRecordings()` on reconnect: HrOfflineRecording → HR + RR channels (1 Hz spacing); PpiOfflineRecording → RR channel; AccOfflineRecording → `_accelBackfillChannel` (merged into `accelerometer()` flow). `CameraXCaptureSource.audioFrames()` starts Bluetooth SCO before `AudioRecord`, uses `VOICE_COMMUNICATION` source, 500 ms settle delay, stops SCO in finally. | |
@@ -398,6 +397,17 @@ YYYY-MM-DD — Kahn / Claude Code session #N
 ```
 
 ```
+2026-05-27 — Claude Code — MCP-MOD-001/003/004: SQLite backend + value-proximity + write auth
+  - SqliteCorpusBackend complete: WAL journal, events + weight_audit tables, 4 indexed columns, O(1) corpus_depth.
+  - MOD-003 value-proximity scoring live in SqliteCorpusBackend.query_by_cause_signature: 1/(1+|q−s|) per shared instrument, graph_weight 10% tiebreaker.
+  - Contract test fixture extended to params=["json","sqlite"]; 58/58 (29×2 backends) green.
+  - MOD-004 per-operator write auth: [auth] write_operators in config.toml; _check_write_auth() helper; ingest_event checks operator_id, update_graph_weight checks updated_by; empty allowlist = no restriction; 6 new TestWriteAuth tests; 68/68 total.
+  - query_by_cause_signature docstring updated: "Phase 1 coverage / Phase 2 proximity" replaced with live MOD-003 algorithm description.
+  - Backlog items 7/8/9 (MOD-001/003/004) struck; deferred MOD table updated.
+  - Next session pickup point: install APK, run first Λ_env-only shadow session, begin 10–15-event warm corpus.
+```
+
+```
 2026-05-27 — Claude Code — Phase 1 Android complete + backend Phase 2 start
   - Wired source-polar into Hilt DI (PolarBleBiometricSource.create, connect()); ε_sync callback (registerSyncListener → EpsSyncCoordinator); clock reset on reconnect.
   - Vendor-agnostic capture: CaptureSourceFactory interface; DefaultCaptureSourceFactory (BT bond check → Meta Ray-Ban or CameraX); source-meta-raybans stub module; GLASSES_DEVICE_ID buildConfigField.
@@ -472,9 +482,9 @@ Phase 2 items are wired when corpus reaches scale. Phase 3 items require `GraphC
 
 | ID | Phase | Trigger | Summary |
 |---|---|---|---|
-| MCP-MOD-001 | 2 | corpus_depth > ~500 OR latency > 200ms | `SqliteCorpusBackend` — see §3 item 6 |
-| MCP-MOD-003 | 2→3 | Phase 2 | `query_by_cause_signature` value-proximity scoring — see §3 item 7 |
-| MCP-MOD-004 | 2 | Phase 2 | Per-operator write auth — see §3 item 8 |
+| MCP-MOD-001 | 2 | **DONE 2026-05-27** | `SqliteCorpusBackend` — W-022 |
+| MCP-MOD-003 | 2→3 | **DONE 2026-05-27** | `query_by_cause_signature` value-proximity scoring — W-022 |
+| MCP-MOD-004 | 2 | **DONE 2026-05-27** | Per-operator write auth — W-023 |
 | MCP-MOD-006 | 3 | Phase 3 | `graph_weight` counterfactual policy — Leiden re-detection on high-centrality weight changes > 0.2. Defer ratified 2026-05-26; calibrate thresholds against real corpus data in a Phase 3 design session. |
 | MCP-MOD-007 | 3 | Phase 3 | `get_divergent_chains` — 8th MCP tool stub **built 2026-05-26 (W-014)**, JSON backend returns `NOT_AVAILABLE`; native graph traversal lands with `GraphCorpusBackend`. |
 | MCP-MOD-002 | 3 | corpus_depth > ~5000 OR multi-facility | `GraphCorpusBackend` (Neo4j) — native Cypher, HNSW ANN, CIAER-QL. Full spec in `SESSION_LOG.md`. |

@@ -29,12 +29,27 @@ import pytest
 
 from arcshield.corpus.backends import get_backend
 from server import build_server
+from tests.test_corpus_backend_contract import make_event
 
-FACILITY = "TEST_FACILITY_01"
+FACILITY    = "TEST_FACILITY_01"
+ALLOWED_OP  = "op_hash_abc123"
+DENIED_OP   = "op_hash_unknown"
 
 CONFIG = {
     "server":  {"name": "arcshield-test", "facility_id": FACILITY, "allow_writes": False},
     "backend": {"type": "json", "json": {"corpus_dir": "/tmp/arcshield_mcp_surface_unused"}},
+}
+
+CONFIG_WRITES_NO_ALLOWLIST = {
+    "server":  {"name": "arcshield-test", "facility_id": FACILITY, "allow_writes": True},
+    "backend": {"type": "json", "json": {"corpus_dir": "/tmp/arcshield_mcp_surface_unused"}},
+    "auth":    {"write_operators": []},
+}
+
+CONFIG_WRITES_WITH_ALLOWLIST = {
+    "server":  {"name": "arcshield-test", "facility_id": FACILITY, "allow_writes": True},
+    "backend": {"type": "json", "json": {"corpus_dir": "/tmp/arcshield_mcp_surface_unused"}},
+    "auth":    {"write_operators": [ALLOWED_OP]},
 }
 
 EXPECTED_TOOLS = {
@@ -124,3 +139,118 @@ async def test_get_divergent_chains_tool_returns_not_available(tmp_path):
         payload = json.loads(raw)
         assert payload["error"] == "NOT_AVAILABLE"
         assert payload["tool"] == "get_divergent_chains"
+
+
+# ---------------------------------------------------------------------------
+# MCP-MOD-004: per-operator write auth
+# ---------------------------------------------------------------------------
+
+class TestWriteAuth:
+    """
+    Three cases for each write tool:
+    (a) empty allowlist → any operator passes
+    (b) operator in allowlist → passes
+    (c) operator NOT in allowlist → AUTH_FAILED
+
+    update_graph_weight auth is checked before any backend call, so no event
+    needs to exist in the backend for the denied case.
+
+    ingest_event auth is checked after event parsing (operator_id lives inside
+    the CIAER+ JSON), so a valid event is required even for the denied case.
+    """
+
+    # ------------------------------------------------------------------ helpers
+
+    def _get_fn(self, config, tool):
+        mcp = build_server(config)
+        fn = _tool_callable(mcp, tool)
+        if fn is None:
+            pytest.skip("FastMCP tool callable not resolvable on this mcp SDK version")
+        return fn
+
+    # ------------------------------------------------------------------ update_graph_weight
+
+    async def test_update_graph_weight_no_allowlist_passes(self, tmp_path):
+        fn = self._get_fn(CONFIG_WRITES_NO_ALLOWLIST, "update_graph_weight")
+        # Auth should pass even for an operator not in any list (empty = no restriction).
+        # The backend will raise EventNotFoundError (no event in corpus), but NOT AUTH_FAILED.
+        backend = get_backend("json", corpus_dir=str(tmp_path), facility_id=FACILITY)
+        async with backend:
+            ctx = SimpleNamespace(
+                request_context=SimpleNamespace(lifespan_context={"backend": backend})
+            )
+            raw = await fn(ctx, event_id="00000000-0000-0000-0000-000000000000",
+                           new_weight=0.5, rationale="test", updated_by=DENIED_OP)
+            payload = json.loads(raw)
+            # Empty allowlist: must NOT be AUTH_FAILED — any other error is fine
+            assert payload.get("error") != "AUTH_FAILED"
+
+    async def test_update_graph_weight_allowed_op_passes(self, tmp_path):
+        fn = self._get_fn(CONFIG_WRITES_WITH_ALLOWLIST, "update_graph_weight")
+        backend = get_backend("json", corpus_dir=str(tmp_path), facility_id=FACILITY)
+        async with backend:
+            ctx = SimpleNamespace(
+                request_context=SimpleNamespace(lifespan_context={"backend": backend})
+            )
+            raw = await fn(ctx, event_id="00000000-0000-0000-0000-000000000000",
+                           new_weight=0.5, rationale="test", updated_by=ALLOWED_OP)
+            payload = json.loads(raw)
+            assert payload.get("error") != "AUTH_FAILED"
+
+    async def test_update_graph_weight_denied_op_returns_auth_failed(self, tmp_path):
+        fn = self._get_fn(CONFIG_WRITES_WITH_ALLOWLIST, "update_graph_weight")
+        backend = get_backend("json", corpus_dir=str(tmp_path), facility_id=FACILITY)
+        async with backend:
+            ctx = SimpleNamespace(
+                request_context=SimpleNamespace(lifespan_context={"backend": backend})
+            )
+            raw = await fn(ctx, event_id="00000000-0000-0000-0000-000000000000",
+                           new_weight=0.5, rationale="test", updated_by=DENIED_OP)
+            payload = json.loads(raw)
+            assert payload["error"] == "AUTH_FAILED"
+            assert payload["tool"] == "update_graph_weight"
+            assert DENIED_OP in payload["message"]
+
+    # ------------------------------------------------------------------ ingest_event
+
+    async def test_ingest_event_no_allowlist_passes(self, tmp_path):
+        fn = self._get_fn(CONFIG_WRITES_NO_ALLOWLIST, "ingest_event")
+        event = make_event()
+        # Use an operator that is NOT in any allowlist to confirm empty list = no restriction
+        event2 = event.model_copy(update={"operator_id": DENIED_OP})
+        backend = get_backend("json", corpus_dir=str(tmp_path), facility_id=FACILITY)
+        async with backend:
+            ctx = SimpleNamespace(
+                request_context=SimpleNamespace(lifespan_context={"backend": backend})
+            )
+            raw = await fn(ctx, event_json=event2.model_dump_json())
+            payload = json.loads(raw)
+            assert payload.get("error") != "AUTH_FAILED"
+
+    async def test_ingest_event_allowed_op_passes(self, tmp_path):
+        fn = self._get_fn(CONFIG_WRITES_WITH_ALLOWLIST, "ingest_event")
+        event = make_event()  # operator_id = "op_hash_abc123" = ALLOWED_OP
+        backend = get_backend("json", corpus_dir=str(tmp_path), facility_id=FACILITY)
+        async with backend:
+            ctx = SimpleNamespace(
+                request_context=SimpleNamespace(lifespan_context={"backend": backend})
+            )
+            raw = await fn(ctx, event_json=event.model_dump_json())
+            payload = json.loads(raw)
+            assert payload.get("error") != "AUTH_FAILED"
+            assert "event_id" in payload  # successful ingest returns event_id
+
+    async def test_ingest_event_denied_op_returns_auth_failed(self, tmp_path):
+        fn = self._get_fn(CONFIG_WRITES_WITH_ALLOWLIST, "ingest_event")
+        event = make_event()
+        denied_event = event.model_copy(update={"operator_id": DENIED_OP})
+        backend = get_backend("json", corpus_dir=str(tmp_path), facility_id=FACILITY)
+        async with backend:
+            ctx = SimpleNamespace(
+                request_context=SimpleNamespace(lifespan_context={"backend": backend})
+            )
+            raw = await fn(ctx, event_json=denied_event.model_dump_json())
+            payload = json.loads(raw)
+            assert payload["error"] == "AUTH_FAILED"
+            assert payload["tool"] == "ingest_event"
+            assert DENIED_OP in payload["message"]

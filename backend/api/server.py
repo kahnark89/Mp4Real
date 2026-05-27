@@ -153,13 +153,33 @@ def build_server(config: dict) -> FastMCP:
     across all tool calls via closure — no global state.
     """
 
-    facility_id  = config["server"]["facility_id"]
-    allow_writes = config["server"].get("allow_writes", False)
-    backend_type = config["backend"]["type"]
+    facility_id    = config["server"]["facility_id"]
+    allow_writes   = config["server"].get("allow_writes", False)
+    write_operators: list[str] = config.get("auth", {}).get("write_operators", [])
+    backend_type   = config["backend"]["type"]
     backend_kwargs = {
         **config["backend"].get(backend_type, {}),
         "facility_id": facility_id,
     }
+
+    # ------------------------------------------------------------------
+    # Auth helper — checked before any write reaches the backend
+    # ------------------------------------------------------------------
+
+    def _check_write_auth(operator: str, tool_name: str) -> str | None:
+        """
+        Return an AUTH_FAILED error string if operator is not in the
+        write_operators allowlist, or None if auth passes.
+        Empty allowlist = no restriction (allow_writes still gates first).
+        """
+        if write_operators and operator not in write_operators:
+            return _error(
+                tool_name,
+                "AUTH_FAILED",
+                f"operator_id '{operator}' is not in the write_operators allowlist. "
+                "Contact the facility administrator to be added.",
+            )
+        return None
 
     # ------------------------------------------------------------------
     # Lifespan: open backend once, close on shutdown
@@ -279,10 +299,9 @@ def build_server(config: dict) -> FastMCP:
             "  top_n: max results (1–50, default 5)\n"
             "  min_graph_weight: confidence floor 0.0–1.0 (default 0.0)\n\n"
             "IMPLEMENTATION NOTE (server.py:query_by_cause_signature): "
-            "Phase 1 similarity uses instrument-id coverage + graph_weight. "
-            "Phase 2 adds value-proximity weighting. "
-            "Phase 3 replaces with embedding-based ANN search. "
-            "Update this docstring when the similarity algorithm changes."
+            "Current similarity (MOD-003): value-proximity per shared instrument "
+            "= 1/(1+|q_val−s_val|), averaged, graph_weight as 10%% tiebreaker. "
+            "Phase 3 replaces with embedding-based ANN search."
         )
     )
     async def query_by_cause_signature(
@@ -399,11 +418,11 @@ def build_server(config: dict) -> FastMCP:
             "  - event_id must be globally unique\n"
             "  - timestamp_start must precede timestamp_end\n"
             "  - All required schema fields must be present\n\n"
+            "Per-operator auth: when config.toml [auth] write_operators is non-empty, "
+            "event.operator_id must appear in that list or AUTH_FAILED is returned.\n\n"
             "IMPLEMENTATION NOTE (server.py:ingest_event): "
-            "Phase 2 add per-operator signed token auth before accepting writes. "
-            "Phase 2 add escalation_delta coherence check "
-            "(delta == cause.escalation_state - result.escalation_state_at_result). "
-            "See config.toml [auth] section."
+            "Phase 3 upgrade: replace allowlist lookup with signed-token verification "
+            "once MCP header support lands upstream."
         )
     )
     async def ingest_event(ctx, event_json: str) -> str:
@@ -417,6 +436,8 @@ def build_server(config: dict) -> FastMCP:
         try:
             raw = json.loads(event_json)
             event = CIAEREvent.model_validate(raw)
+            if auth_err := _check_write_auth(event.operator_id, "ingest_event"):
+                return auth_err
             event_id = await backend.ingest_event(event)
             log.info("Ingested event %s (failure_mode=%s)", event_id, event.intuition.failure_mode_tag)
             return _ok(
@@ -452,8 +473,9 @@ def build_server(config: dict) -> FastMCP:
             "  new_weight: float in [0.0, 1.0]\n"
             "  rationale: plain-text explanation of why the weight changed (required)\n"
             "  updated_by: operator_id hash or 'SYSTEM'\n\n"
+            "Per-operator auth: when config.toml [auth] write_operators is non-empty, "
+            "updated_by must appear in that list or AUTH_FAILED is returned.\n\n"
             "IMPLEMENTATION NOTE (server.py:update_graph_weight): "
-            "Phase 2 restrict updated_by to the write_operators allowlist in config.toml. "
             "Phase 3 trigger Leiden community re-detection when a high-centrality "
             "event's weight changes by > 0.2."
         )
@@ -471,6 +493,8 @@ def build_server(config: dict) -> FastMCP:
                 "WRITE_DISABLED",
                 "This server is configured read-only (allow_writes=false in config.toml).",
             )
+        if auth_err := _check_write_auth(updated_by, "update_graph_weight"):
+            return auth_err
         backend = ctx.request_context.lifespan_context["backend"]
         try:
             update = WeightUpdate(
