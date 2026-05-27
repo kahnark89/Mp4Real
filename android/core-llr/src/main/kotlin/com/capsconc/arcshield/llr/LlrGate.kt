@@ -37,7 +37,7 @@ import kotlin.math.max
  * Phase 1 Λ_bio components:
  *   Λ_hr    — Gaussian-shift GLR on rolling HR mean          ✅ active
  *   Λ_rmssd — Gaussian-shift GLR on rolling RMSSD            ✅ active
- *   Λ_hrv_nl — SD1/SD2 + sample entropy nonlinear HRV        ⚠ stub 0.0 (H10 ECG path, Phase 2)
+ *   Λ_hrv_nl — SD1/SD2 + sample entropy nonlinear HRV        active when baseline.nonlinearHrvAvailable
  *   activity gate — accel-RMS activity class scales Λ_bio    ✅ active
  *
  * The combination rule Λ = Λ_env + Λ_bio assumes S_env ⊥ S_bio | E, Z
@@ -175,8 +175,27 @@ fun llrGate(
                 max(0f, (delta * delta) / (2f * baseline.rmssdVarianceMs))
             } else 0f
 
-            // Nonlinear HRV (SD1/SD2, sample entropy) — Phase 2 when H10 ECG path is live
-            val lambdaHrvNl = 0f   // TODO: nonlinear HRV from raw R-R intervals (Phase 2)
+            val lambdaHrvNl: Float = if (bioSnap.hasNonlinearHrv && baseline.nonlinearHrvAvailable) {
+                val lambdaSd1: Float = if (baseline.sd1VarianceMs > 0f) {
+                    val d = bioSnap.sd1Ms - baseline.sd1BaselineMs
+                    max(0f, (d * d) / (2f * baseline.sd1VarianceMs))
+                } else 0f
+
+                val lambdaSd2: Float = if (baseline.sd2VarianceMs > 0f) {
+                    val d = bioSnap.sd2Ms - baseline.sd2BaselineMs
+                    max(0f, (d * d) / (2f * baseline.sd2VarianceMs))
+                } else 0f
+
+                val lambdaSampEn: Float = if (!bioSnap.sampEn.isNaN()
+                    && !baseline.sampEnBaseline.isNaN()
+                    && baseline.sampEnVariance > 0f
+                ) {
+                    val d = bioSnap.sampEn - baseline.sampEnBaseline
+                    max(0f, (d * d) / (2f * baseline.sampEnVariance))
+                } else 0f
+
+                lambdaSd1 + lambdaSd2 + lambdaSampEn
+            } else 0f
 
             lambdaBio = activityGate * (lambdaHr + lambdaRmssd + lambdaHrvNl)
         } else {

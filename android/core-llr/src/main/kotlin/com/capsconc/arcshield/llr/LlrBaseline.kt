@@ -58,6 +58,27 @@ data class LlrBaseline(
     val biometricAvailable: Boolean = false,
 
     // ------------------------------------------------------------------
+    // Nonlinear HRV baseline — populated when ≥ 20 R-R intervals were
+    // captured during the I-frame. Requires H10 (raw R-R via PMD).
+    // All fields default to 0 / NaN / false when unavailable.
+    // ------------------------------------------------------------------
+
+    /** Mean Poincaré SD1 (ms) over I-frame sub-windows. */
+    val sd1BaselineMs: Float = 0f,
+    /** Variance of SD1 across I-frame sub-windows. Floored to 1e-6. */
+    val sd1VarianceMs: Float = 1e-6f,
+    /** Mean Poincaré SD2 (ms) over I-frame sub-windows. */
+    val sd2BaselineMs: Float = 0f,
+    /** Variance of SD2 across I-frame sub-windows. Floored to 1e-6. */
+    val sd2VarianceMs: Float = 1e-6f,
+    /** Mean Sample Entropy over I-frame sub-windows. NaN when unavailable. */
+    val sampEnBaseline: Float = Float.NaN,
+    /** Variance of SampEn across I-frame sub-windows. Floored to 1e-6. */
+    val sampEnVariance: Float = 1e-6f,
+    /** True when nonlinear HRV baseline was captured (requires ≥ 20 R-R intervals). */
+    val nonlinearHrvAvailable: Boolean = false,
+
+    // ------------------------------------------------------------------
     // Motion baseline — populated when a CaptureSource video flow was
     // collected during the I-frame. All fields default to 0 / unavailable
     // when no video source was present.

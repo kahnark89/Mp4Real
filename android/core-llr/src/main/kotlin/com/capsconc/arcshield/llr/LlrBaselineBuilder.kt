@@ -2,6 +2,7 @@ package com.capsconc.arcshield.llr
 
 import android.os.SystemClock
 import com.capsconc.arcshield.llr.internal.FrameDiffMotion
+import com.capsconc.arcshield.llr.internal.NonlinearHrv
 import com.capsconc.arcshield.llr.internal.RealFft
 import com.capsconc.arcshield.llr.internal.RollingAccelRms
 import com.capsconc.arcshield.schema.biometric.AccelSample
@@ -123,6 +124,9 @@ suspend fun buildBaseline(
 
     val (rmssdMean, rmssdVar) = computeRmssdStats(rrValues)
 
+    val (sd1Mean, sd1Var, sd2Mean, sd2Var, sampEnMean, sampEnVar, nlAvailable) =
+        computeNonlinearHrvStats(rrValues)
+
     val hasMotion         = motionCount > 0
     val motionBaselineMad = motionMean.toFloat()
     val motionVarianceMad = if (motionCount > 1)
@@ -144,6 +148,13 @@ suspend fun buildBaseline(
         motionBaselineMad        = motionBaselineMad,
         motionVarianceMad        = motionVarianceMad,
         motionAvailable          = hasMotion,
+        sd1BaselineMs            = sd1Mean,
+        sd1VarianceMs            = sd1Var,
+        sd2BaselineMs            = sd2Mean,
+        sd2VarianceMs            = sd2Var,
+        sampEnBaseline           = sampEnMean,
+        sampEnVariance           = sampEnVar,
+        nonlinearHrvAvailable    = nlAvailable,
     )
 }
 
@@ -217,6 +228,59 @@ private fun computeRmssdStats(rrList: List<Int>): Pair<Float, Float> {
 
     return Pair(overall, variance)
 }
+
+/**
+ * Computes per-window nonlinear HRV (SD1, SD2, SampEn) from flat R-R list.
+ * Returns (sd1Mean, sd1Var, sd2Mean, sd2Var, sampEnMean, sampEnVar, available).
+ * Uses same 20-beat / stride-10 sub-windows as [computeRmssdStats].
+ * Returns all-zero tuple with available=false when fewer than MIN_NL_RR intervals.
+ */
+private fun computeNonlinearHrvStats(
+    rrList: List<Int>,
+): Triple7 {
+    if (rrList.size < NonlinearHrv.MIN_RR_COUNT) {
+        return Triple7(0f, 1e-6f, 0f, 1e-6f, Float.NaN, 1e-6f, false)
+    }
+
+    val winBeats    = 20
+    val strideBeats = 10
+    val sd1List  = mutableListOf<Float>()
+    val sd2List  = mutableListOf<Float>()
+    val senList  = mutableListOf<Float>()
+
+    var start = 0
+    while (start + winBeats <= rrList.size) {
+        val sub = FloatArray(winBeats) { rrList[start + it].toFloat() }
+        sd1List.add(NonlinearHrv.sd1(sub))
+        sd2List.add(NonlinearHrv.sd2(sub))
+        val se = NonlinearHrv.sampleEntropy(sub)
+        if (!se.isNaN()) senList.add(se)
+        start += strideBeats
+    }
+
+    fun stats(values: List<Float>): Pair<Float, Float> {
+        if (values.isEmpty()) return Pair(0f, 1e-6f)
+        val m = values.average().toFloat()
+        val v = if (values.size > 1) {
+            val ss = values.sumOf { x -> (x - m).toDouble() * (x - m) }
+            max((ss / (values.size - 1)).toFloat(), 1e-6f)
+        } else 1e-6f
+        return Pair(m, v)
+    }
+
+    val (sd1m, sd1v) = stats(sd1List)
+    val (sd2m, sd2v) = stats(sd2List)
+    val (sem, sev)   = if (senList.isNotEmpty()) stats(senList) else Pair(Float.NaN, 1e-6f)
+
+    return Triple7(sd1m, sd1v, sd2m, sd2v, sem, sev, true)
+}
+
+private data class Triple7(
+    val sd1Mean: Float, val sd1Var: Float,
+    val sd2Mean: Float, val sd2Var: Float,
+    val sampEnMean: Float, val sampEnVar: Float,
+    val available: Boolean,
+)
 
 private fun rmssdOf(rr: List<Int>): Float {
     if (rr.size < 2) return 0f
