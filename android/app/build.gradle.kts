@@ -62,6 +62,7 @@ dependencies {
     implementation(project(":shadow-mode-labeler"))
     implementation(project(":source-camerax"))
     implementation(project(":source-imu"))
+    implementation(project(":source-polar"))
     implementation(project(":source-vision-telemetry"))
     implementation(project(":llm-claude"))
 

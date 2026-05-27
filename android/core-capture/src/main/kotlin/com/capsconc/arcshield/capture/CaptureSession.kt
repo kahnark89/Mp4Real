@@ -91,6 +91,10 @@ class CaptureSession(
         val sharedRr    = biometricSource.rrIntervals()
             .shareIn(scope, SharingStarted.Eagerly, replay = 0)
 
+        biometricSource.registerSyncListener { phone, ext ->
+            epsSync.recordSyncPoint(phone, ext)
+        }
+
         // ---- 2. Wire encoder outputs → ring buffers -----------------------
 
         scope.launch {
@@ -199,24 +203,10 @@ class CaptureSession(
             }
         }
 
-        // ---- 8. Periodic ε_sync resync ------------------------------------
-
-        scope.launch {
-            // Trigger a sync on BLE reconnect in source-polar; this timer is
-            // the session-level fallback. source-polar's reconnect handler
-            // should call epsSync.recordSyncPoint() directly.
-            biometricSource.heartRate().collect { _ ->
-                if (epsSync.isSyncDue()) {
-                    val phoneNow = SystemClock.elapsedRealtimeNanos()
-                    // For Phase 1, we record phoneNow as both sides (zero offset)
-                    // until source-polar provides a proper PMD timestamp reference.
-                    epsSync.recordSyncPoint(phoneNow, phoneNow)
-                }
-            }
-        }
     }
 
     fun close(): SessionMetadata {
+        biometricSource.registerSyncListener(null)
         videoEncoder.release()
         audioEncoder.release()
         val sync = epsSync.currentSync()

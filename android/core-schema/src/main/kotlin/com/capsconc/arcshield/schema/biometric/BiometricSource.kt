@@ -78,4 +78,10 @@ interface BiometricSource {
     fun gaps():          Flow<BiometricGap>  // explicit gap events, never silenced
     val capabilities:    Set<BiometricChannel>
     val sourceId:        String              // "polar_h10_v1" | "polar_verity_sense_v1" | ...
+
+    // Called by CaptureSession to receive clock-sync events (PMD anchor timestamps).
+    // Implementations that perform hardware clock anchoring (source-polar) override
+    // this and invoke the listener when a fresh anchor is established.
+    // Default is a no-op so NullBiometricSource and test doubles need no change.
+    fun registerSyncListener(listener: ((phoneNanos: Long, externalNanos: Long) -> Unit)?) {}
 }

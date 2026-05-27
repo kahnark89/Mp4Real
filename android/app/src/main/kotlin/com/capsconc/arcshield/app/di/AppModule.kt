@@ -8,6 +8,8 @@ import com.capsconc.arcshield.schema.imu.AccelSource
 import com.capsconc.arcshield.schema.llm.LlmClient
 import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
 import com.capsconc.arcshield.source.imu.PhoneImuAccelSource
+import com.capsconc.arcshield.source.polar.PolarBleBiometricSource
+import com.capsconc.arcshield.source.polar.PolarDeviceType
 import com.capsconc.arcshield.vision.HollowellChannelPresets
 import com.capsconc.arcshield.vision.VisionTelemetrySource
 import dagger.Module
@@ -36,12 +38,22 @@ object AppModule {
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // ---- BiometricSource -----------------------------------------------
-    // Phase 1 Λ_env-only shadow sessions run without a Polar device, so the
-    // biometric channel is a no-op source (Λ_bio = 0). To enable H10 / Verity
-    // Sense capture, add `implementation(project(":source-polar"))` back to the
-    // app module and bind PolarBleBiometricSource here instead.
+    // H10 via Polar BLE SDK (PMD protocol). CLAUDE.md §8.
+    // POLAR_DEVICE_ID is read from local.properties at build time.
     @Provides @Singleton
-    fun provideBiometricSource(): BiometricSource = NullBiometricSource()
+    fun provideBiometricSource(
+        @ApplicationContext ctx: Context,
+        @ApplicationScope scope: CoroutineScope,
+    ): BiometricSource {
+        val source = PolarBleBiometricSource.create(
+            context    = ctx,
+            deviceId   = BuildConfig.POLAR_DEVICE_ID,
+            deviceType = PolarDeviceType.H10,
+            scope      = scope,
+        )
+        source.connect()
+        return source
+    }
 
     // ---- AccelSource ---------------------------------------------------
     // Phone IMU (SensorManager) drives Λ_accel and the accel track. This is the
