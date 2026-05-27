@@ -32,7 +32,7 @@ import kotlin.math.max
  *   Λ_acoustic — KL(baseline_spectrum ‖ rolling_spectrum)    ✅ active
  *   Λ_accel    — Gaussian-shift GLR on rolling 5s accel RMS  ✅ active
  *   Λ_motion   — Gaussian-shift GLR on frame MAD (Y-plane)   ✅ active (0.0 when videoFrames = emptyFlow)
- *   Λ_gaze     — sustained dwell duration                    ⚠ stub 0.0 (gaze not wired)
+ *   Λ_gaze     — sustained dwell duration                    ✅ wired (0f until gaze source provides data)
  *
  * Phase 1 Λ_bio components:
  *   Λ_hr    — Gaussian-shift GLR on rolling HR mean          ✅ active
@@ -55,15 +55,20 @@ import kotlin.math.max
  *                     Pass [emptyFlow] (default) when no camera source is connected.
  *                     When [baseline.motionAvailable] is false, Λ_motion is 0.0
  *                     regardless of this flow.
+ * @param gazeDwellProvider Lambda returning the current gaze dwell duration in seconds.
+ *                          Returns 0f by default (gaze not yet wired). Inject a real
+ *                          provider when eye-tracking hardware is available (Meta Ray-Bans
+ *                          Gen 2, Phase 2+). The provider is called on every eval tick.
  */
 fun llrGate(
-    audioFrames:  Flow<AudioFrame>,
-    accelSamples: Flow<AccelSample>,
-    baseline:     LlrBaseline,
-    config:       LlrConfig,
-    hrSamples:    Flow<HrSample>   = emptyFlow(),
-    rrSamples:    Flow<RrSample>   = emptyFlow(),
-    videoFrames:  Flow<VideoFrame> = emptyFlow(),
+    audioFrames:       Flow<AudioFrame>,
+    accelSamples:      Flow<AccelSample>,
+    baseline:          LlrBaseline,
+    config:            LlrConfig,
+    hrSamples:         Flow<HrSample>   = emptyFlow(),
+    rrSamples:         Flow<RrSample>   = emptyFlow(),
+    videoFrames:       Flow<VideoFrame> = emptyFlow(),
+    gazeDwellProvider: () -> Float      = { 0f },
 ): Flow<CandidateWindow> = channelFlow {
 
     // Shared mutable state updated by producer coroutines, read by the eval ticker.
@@ -149,7 +154,16 @@ fun llrGate(
             max(0f, (dev * dev) / (2f * baseline.motionVarianceMad))
         } else 0f
 
-        val lambdaGaze = 0f   // TODO: sustained gaze dwell (gaze tracking)
+        // Λ_gaze: sustained attention dwell on visual anchor.
+        // Provider is 0f until gaze tracking hardware is wired (Meta Ray-Bans Gen 2, Phase 2+).
+        // The provider is injectable so gaze sources (eye tracker, manual operator input)
+        // can feed in without restructuring the gate.
+        val rawDwell      = gazeDwellProvider()
+        val baselineDwell = config.gazeDwellBaselineSec
+        val lambdaGaze: Float = if (rawDwell > baselineDwell && config.gazeDwellVarianceSec > 0f) {
+            val dev = rawDwell - baselineDwell
+            kotlin.math.max(0f, (dev * dev) / (2f * config.gazeDwellVarianceSec))
+        } else 0f
 
         // ---- Λ_bio -------------------------------------------------------
         val bioSnap     = latestBioRef.get()

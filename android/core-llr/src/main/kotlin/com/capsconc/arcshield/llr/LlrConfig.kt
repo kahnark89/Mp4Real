@@ -62,4 +62,10 @@ data class LlrConfig(
 
     /** Λ_bio scaling factor for vigorous activity (0.0–1.0). */
     val vigorousGateFactor: Float = 0.1f,
+
+    /** Baseline gaze dwell duration in seconds (shift-start mean). Default 0 = disabled. */
+    val gazeDwellBaselineSec: Float = 0f,
+
+    /** Gaze dwell variance (seconds²) for Gaussian-shift GLR. Default 0 = disabled. */
+    val gazeDwellVarianceSec: Float = 0f,
 )
