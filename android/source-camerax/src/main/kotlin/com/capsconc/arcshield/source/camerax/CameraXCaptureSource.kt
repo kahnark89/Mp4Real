@@ -1,7 +1,9 @@
 package com.capsconc.arcshield.source.camerax
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.SystemClock
@@ -11,12 +13,11 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import android.content.Context
 import com.capsconc.arcshield.schema.capture.AudioFrame
 import com.capsconc.arcshield.schema.capture.CaptureSource
 import com.capsconc.arcshield.schema.capture.VideoFrame
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.channelFlow
@@ -88,17 +89,29 @@ class CameraXCaptureSource(
 
     @SuppressLint("MissingPermission")
     override fun audioFrames(): Flow<AudioFrame> = channelFlow {
+        val audioManager  = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val sampleRate    = 48_000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
         val encoding      = AudioFormat.ENCODING_PCM_16BIT
         val samplesPerBuf = 480                                     // ~10 ms per frame
         val bytesBufSize  = samplesPerBuf * 2                       // 16-bit = 2 bytes/sample
 
-        val minBuf = AudioRecord.getMinBufferSize(sampleRate, channelConfig, encoding)
+        // Route audio input/output through paired Bluetooth earbuds when available.
+        // isBluetoothScoAvailableOffCall = true means a BT SCO device is paired and
+        // the phone supports SCO outside of calls (required for in-app mic capture).
+        val scoAvailable = audioManager.isBluetoothScoAvailableOffCall
+        if (scoAvailable) {
+            audioManager.startBluetoothSco()
+            audioManager.isBluetoothScoOn = true
+            // Give the SCO link time to establish before AudioRecord starts.
+            delay(SCO_CONNECT_DELAY_MS)
+        }
+
+        val minBuf  = AudioRecord.getMinBufferSize(sampleRate, channelConfig, encoding)
         val bufSize = maxOf(bytesBufSize * 4, minBuf)               // ring buffer ≥ minBuf
 
         val recorder = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,          // prefers SCO mic when active
             sampleRate,
             channelConfig,
             encoding,
@@ -123,7 +136,15 @@ class CameraXCaptureSource(
         } finally {
             recorder.stop()
             recorder.release()
+            if (scoAvailable) {
+                audioManager.isBluetoothScoOn = false
+                audioManager.stopBluetoothSco()
+            }
         }
+    }
+
+    companion object {
+        private const val SCO_CONNECT_DELAY_MS = 500L
     }
 }
 

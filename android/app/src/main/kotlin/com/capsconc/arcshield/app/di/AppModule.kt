@@ -2,12 +2,16 @@ package com.capsconc.arcshield.app.di
 
 import android.content.Context
 import com.capsconc.arcshield.app.BuildConfig
+import com.capsconc.arcshield.app.capture.DefaultCaptureSourceFactory
 import com.capsconc.arcshield.llm.claude.ClaudeVisionClient
 import com.capsconc.arcshield.schema.biometric.BiometricSource
+import com.capsconc.arcshield.schema.capture.CaptureSourceFactory
 import com.capsconc.arcshield.schema.imu.AccelSource
 import com.capsconc.arcshield.schema.llm.LlmClient
 import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
 import com.capsconc.arcshield.source.imu.PhoneImuAccelSource
+import com.capsconc.arcshield.source.polar.PolarBleBiometricSource
+import com.capsconc.arcshield.source.polar.PolarDeviceType
 import com.capsconc.arcshield.vision.HollowellChannelPresets
 import com.capsconc.arcshield.vision.VisionTelemetrySource
 import dagger.Module
@@ -36,12 +40,22 @@ object AppModule {
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // ---- BiometricSource -----------------------------------------------
-    // Phase 1 Λ_env-only shadow sessions run without a Polar device, so the
-    // biometric channel is a no-op source (Λ_bio = 0). To enable H10 / Verity
-    // Sense capture, add `implementation(project(":source-polar"))` back to the
-    // app module and bind PolarBleBiometricSource here instead.
+    // H10 via Polar BLE SDK (PMD protocol). CLAUDE.md §8.
+    // POLAR_DEVICE_ID is read from local.properties at build time.
     @Provides @Singleton
-    fun provideBiometricSource(): BiometricSource = NullBiometricSource()
+    fun provideBiometricSource(
+        @ApplicationContext ctx: Context,
+        @ApplicationScope scope: CoroutineScope,
+    ): BiometricSource {
+        val source = PolarBleBiometricSource.create(
+            context    = ctx,
+            deviceId   = BuildConfig.POLAR_DEVICE_ID,
+            deviceType = PolarDeviceType.H10,
+            scope      = scope,
+        )
+        source.connect()
+        return source
+    }
 
     // ---- AccelSource ---------------------------------------------------
     // Phone IMU (SensorManager) drives Λ_accel and the accel track. This is the
@@ -57,6 +71,13 @@ object AppModule {
     @Provides @Singleton
     fun provideLlmClient(): LlmClient =
         ClaudeVisionClient(apiKey = BuildConfig.CLAUDE_API_KEY)
+
+    // ---- CaptureSourceFactory -----------------------------------------
+    // Prefers Meta Ray-Ban glasses when GLASSES_DEVICE_ID is set and the
+    // device is bonded; falls back to CameraX otherwise (CLAUDE.md §9).
+    @Provides @Singleton
+    fun provideCaptureSourceFactory(@ApplicationContext ctx: Context): CaptureSourceFactory =
+        DefaultCaptureSourceFactory(ctx, BuildConfig.GLASSES_DEVICE_ID)
 
     // ---- PlcTelemetrySource -------------------------------------------
     // VisionTelemetrySource replaces a direct PLC API for Phase 1–2.

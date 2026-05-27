@@ -1,14 +1,17 @@
 package com.capsconc.arcshield.source.polar
 
+import android.content.Context
 import android.os.SystemClock
 import com.capsconc.arcshield.schema.biometric.*
 import com.polar.sdk.api.PolarBleApi
+import com.polar.sdk.api.PolarBleApiDefaultImpl
 import com.polar.sdk.api.PolarBleApiCallback
 import com.polar.sdk.api.errors.PolarInvalidArgument
 import com.polar.sdk.api.model.PolarAccelerometerData
 import com.polar.sdk.api.model.PolarDeviceInfo
 import com.polar.sdk.api.model.PolarEcgData
 import com.polar.sdk.api.model.PolarHrData
+import com.polar.sdk.api.model.PolarOfflineRecordingData
 import com.polar.sdk.api.model.PolarSensorSetting
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -16,10 +19,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.rx3.asFlow
+import kotlinx.coroutines.reactive.asFlow  // Flowable implements Publisher — use reactive extension
 import kotlinx.coroutines.rx3.await
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -72,17 +77,23 @@ class PolarBleBiometricSource(
             phoneNanos + (deviceTimestamp - deviceNanos)
     }
 
-    private val clockAnchor = AtomicReference<ClockAnchor?>(null)
+    private val clockAnchor   = AtomicReference<ClockAnchor?>(null)
+    private val _syncListener = AtomicReference<((Long, Long) -> Unit)?>(null)
+
+    override fun registerSyncListener(listener: ((phoneNanos: Long, externalNanos: Long) -> Unit)?) {
+        _syncListener.set(listener)
+    }
 
     private fun anchorIfNeeded(deviceTimestampNanos: Long, sampleRateHz: Int) {
-        clockAnchor.compareAndSet(
-            null,
-            ClockAnchor(
-                phoneNanos          = SystemClock.elapsedRealtimeNanos(),
-                deviceNanos         = deviceTimestampNanos,
-                sampleIntervalNanos = 1_000_000_000L / sampleRateHz,
-            )
+        val phoneNanos = SystemClock.elapsedRealtimeNanos()
+        val newAnchor = ClockAnchor(
+            phoneNanos          = phoneNanos,
+            deviceNanos         = deviceTimestampNanos,
+            sampleIntervalNanos = 1_000_000_000L / sampleRateHz,
         )
+        if (clockAnchor.compareAndSet(null, newAnchor)) {
+            _syncListener.get()?.invoke(phoneNanos, deviceTimestampNanos)
+        }
     }
 
     /**
@@ -114,10 +125,12 @@ class PolarBleBiometricSource(
 
     // -----------------------------------------------------------------------
     // HR / RR channels — fed by the Polar callback (not PMD streaming)
+    // Accel backfill channel — fed only from fetchOfflineRecordings()
     // -----------------------------------------------------------------------
 
-    private val _hrChannel = Channel<HrSample>(Channel.UNLIMITED)
-    private val _rrChannel = Channel<RrSample>(Channel.UNLIMITED)
+    private val _hrChannel            = Channel<HrSample>(Channel.UNLIMITED)
+    private val _rrChannel            = Channel<RrSample>(Channel.UNLIMITED)
+    private val _accelBackfillChannel = Channel<AccelSample>(Channel.UNLIMITED)
 
     // -----------------------------------------------------------------------
     // Polar SDK callback
@@ -126,6 +139,7 @@ class PolarBleBiometricSource(
     private val polarCallback = object : PolarBleApiCallback() {
 
         override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
+            clockAnchor.set(null)   // re-anchor on next PMD frame after reconnect
             val gapStart = disconnectedAtNanos.getAndSet(0L)
             if (gapStart != 0L) {
                 val gapEnd    = SystemClock.elapsedRealtimeNanos()
@@ -148,7 +162,7 @@ class PolarBleBiometricSource(
             startReconnectLoop()
         }
 
-        override fun hrNotificationReceived(identifier: String, data: PolarHrData) {
+        override fun hrNotificationReceived(identifier: String, data: PolarHrData.PolarHrSample) {
             if (identifier != deviceId) return
             val nowNanos = SystemClock.elapsedRealtimeNanos()
             _hrChannel.trySend(HrSample(timestampNanos = nowNanos, bpm = data.hr))
@@ -214,14 +228,63 @@ class PolarBleBiometricSource(
     // -----------------------------------------------------------------------
 
     private suspend fun fetchOfflineRecordings() {
-        // TODO Phase 1: implement via Polar SDK offline recording API:
-        //   val entries = api.listOfflineRecordings(deviceId).await()
-        //   entries.forEach { entry ->
-        //       val recording = api.getOfflineRecord(deviceId, entry, secret = null).await()
-        //       // Reconstruct timestamps: entry.startTime + sampleIndex * sampleIntervalNanos
-        //       // Emit EcgSample / AccelSample into the corresponding channels.
-        //   }
-        // Until this is implemented the gap is emitted but samples are not back-filled.
+        // Convert a Polar wall-clock epoch nanoseconds to phone monotonic nanoseconds.
+        // Polar PMD timestamps are nanoseconds since the UNIX epoch; apply the
+        // phone wall-clock → elapsedRealtime offset computed at call time.
+        val wallOffsetNanos = System.currentTimeMillis() * 1_000_000L - SystemClock.elapsedRealtimeNanos()
+        fun polarEpochNanosToPhone(polarNanos: Long): Long {
+            val anchor = clockAnchor.get()
+            return if (anchor != null) anchor.toPhoneNanos(polarNanos)
+                   else polarNanos - wallOffsetNanos
+        }
+
+        try {
+            val entries = api.listOfflineRecordings(deviceId).asFlow().toList()
+            for (entry in entries) {
+                @Suppress("UNCHECKED_CAST")
+                val recording = api.getOfflineRecord(deviceId, entry, null).await()
+                when (recording) {
+                    is PolarOfflineRecordingData.HrOfflineRecording -> {
+                        // HR offline samples have no individual timestamps.
+                        // H10 records HR at ~1 Hz; space them by HR_SAMPLE_INTERVAL_NANOS.
+                        val startNanos = recording.startTime.timeInMillis * 1_000_000L - wallOffsetNanos
+                        recording.data.samples.forEachIndexed { i, sample ->
+                            val phoneNanos = startNanos + i * HR_SAMPLE_INTERVAL_NANOS
+                            _hrChannel.trySend(HrSample(timestampNanos = phoneNanos, bpm = sample.hr))
+                            if (sample.rrAvailable) {
+                                var cumNanos = phoneNanos
+                                sample.rrsMs.forEach { rrMs ->
+                                    cumNanos += rrMs * 1_000_000L
+                                    _rrChannel.trySend(RrSample(timestampNanos = cumNanos, rrMs = rrMs))
+                                }
+                            }
+                        }
+                    }
+                    is PolarOfflineRecordingData.PpiOfflineRecording -> {
+                        // PPI = peak-to-peak interval in ms; equivalent to R-R.
+                        // Cumulate intervals from startTime for individual beat timestamps.
+                        var cumNanos = recording.startTime.timeInMillis * 1_000_000L - wallOffsetNanos
+                        recording.data.samples.forEach { sample ->
+                            cumNanos += sample.ppi * 1_000_000L
+                            _rrChannel.trySend(RrSample(timestampNanos = cumNanos, rrMs = sample.ppi))
+                        }
+                    }
+                    is PolarOfflineRecordingData.AccOfflineRecording -> {
+                        // ACC offline samples carry per-sample Polar epoch timestamps;
+                        // emit into the shared accel backfill channel.
+                        recording.data.samples.forEach { sample ->
+                            _accelBackfillChannel.trySend(AccelSample(
+                                timestampNanos = polarEpochNanosToPhone(sample.timeStamp),
+                                xMg            = sample.x.toFloat(),
+                                yMg            = sample.y.toFloat(),
+                                zMg            = sample.z.toFloat(),
+                            ))
+                        }
+                    }
+                    else -> { /* gyro / mag / ppg not consumed by this source */ }
+                }
+            }
+        } catch (_: Exception) { /* offline backfill is best-effort; dropout gap already emitted */ }
     }
 
     // -----------------------------------------------------------------------
@@ -248,25 +311,28 @@ class PolarBleBiometricSource(
         }
     }
 
-    override fun accelerometer(): Flow<AccelSample> = flow {
-        val settings = api
-            .requestStreamSettings(deviceId, PolarBleApi.PolarDeviceDataType.ACC)
-            .await()
-        val sampleRateHz = settings.settings[PolarSensorSetting.SettingType.SAMPLE_RATE]
-            ?.firstOrNull() ?: ACC_DEFAULT_SAMPLE_RATE_HZ
-        api.startAccStreaming(deviceId, settings).asFlow().collect { frame: PolarAccelerometerData ->
-            anchorIfNeeded(frame.timeStamp, sampleRateHz)
-            val ts = frameTimestamps(frame.timeStamp, frame.samples.size, sampleRateHz)
-            frame.samples.forEachIndexed { i, sample ->
-                emit(AccelSample(
-                    timestampNanos = ts[i],
-                    xMg = sample.x.toFloat(),
-                    yMg = sample.y.toFloat(),
-                    zMg = sample.z.toFloat(),
-                ))
+    override fun accelerometer(): Flow<AccelSample> = merge(
+        _accelBackfillChannel.receiveAsFlow(),
+        flow {
+            val settings = api
+                .requestStreamSettings(deviceId, PolarBleApi.PolarDeviceDataType.ACC)
+                .await()
+            val sampleRateHz = settings.settings[PolarSensorSetting.SettingType.SAMPLE_RATE]
+                ?.firstOrNull() ?: ACC_DEFAULT_SAMPLE_RATE_HZ
+            api.startAccStreaming(deviceId, settings).asFlow().collect { frame: PolarAccelerometerData ->
+                anchorIfNeeded(frame.timeStamp, sampleRateHz)
+                val ts = frameTimestamps(frame.timeStamp, frame.samples.size, sampleRateHz)
+                frame.samples.forEachIndexed { i, sample ->
+                    emit(AccelSample(
+                        timestampNanos = ts[i],
+                        xMg = sample.x.toFloat(),
+                        yMg = sample.y.toFloat(),
+                        zMg = sample.z.toFloat(),
+                    ))
+                }
             }
-        }
-    }
+        },
+    )
 
     /** EDA is permanently absent from all Polar devices — CLAUDE.md §8.1. */
     override fun edaWaveform(): Flow<EdaSample> = emptyFlow()
@@ -276,10 +342,30 @@ class PolarBleBiometricSource(
     // -----------------------------------------------------------------------
 
     companion object {
-        private const val ECG_SAMPLE_RATE_HZ              = 130
-        private const val ACC_DEFAULT_SAMPLE_RATE_HZ      = 200
+        private const val ECG_SAMPLE_RATE_HZ               = 130
+        private const val ACC_DEFAULT_SAMPLE_RATE_HZ       = 200
         private const val LOW_SYNC_CONFIDENCE_THRESHOLD_MS = 4_000L
         private const val RECONNECT_BASE_DELAY_MS          = 2_000L
         private const val RECONNECT_MAX_DELAY_MS           = 30_000L
+        private const val HR_SAMPLE_INTERVAL_NANOS         = 1_000_000_000L  // H10 offline HR at ~1 Hz
+
+        fun create(
+            context:    Context,
+            deviceId:   String,
+            deviceType: PolarDeviceType,
+            scope:      CoroutineScope,
+        ): PolarBleBiometricSource {
+            val api = PolarBleApiDefaultImpl.defaultImplementation(
+                context,
+                setOf(
+                    PolarBleApi.PolarBleSdkFeature.FEATURE_HR,
+                    PolarBleApi.PolarBleSdkFeature.FEATURE_POLAR_ONLINE_STREAMING,
+                    PolarBleApi.PolarBleSdkFeature.FEATURE_POLAR_OFFLINE_RECORDING,
+                    PolarBleApi.PolarBleSdkFeature.FEATURE_DEVICE_INFO,
+                    PolarBleApi.PolarBleSdkFeature.FEATURE_BATTERY_INFO,
+                ),
+            )
+            return PolarBleBiometricSource(api, deviceId, deviceType, scope)
+        }
     }
 }

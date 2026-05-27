@@ -16,9 +16,9 @@ import com.capsconc.arcshield.labeler.CandidateWindowLog
 import com.capsconc.arcshield.llr.CandidateWindow
 import com.capsconc.arcshield.llr.LlrConfig
 import com.capsconc.arcshield.schema.biometric.BiometricSource
+import com.capsconc.arcshield.schema.capture.CaptureSourceFactory
 import com.capsconc.arcshield.schema.imu.AccelSource
 import com.capsconc.arcshield.schema.telemetry.PlcTelemetrySource
-import com.capsconc.arcshield.source.camerax.CameraXCaptureSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +38,7 @@ class SessionViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val biometricSource: BiometricSource,
     private val accelSource: AccelSource,
+    private val captureSourceFactory: CaptureSourceFactory,
     @Suppress("UnusedPrivateMember")
     private val plcTelemetrySource: PlcTelemetrySource,
 ) : ViewModel() {
@@ -91,7 +92,7 @@ class SessionViewModel @Inject constructor(
                 val log = CandidateWindowLog(logFile)
                 windowLog = log
 
-                val captureSource = CameraXCaptureSource(context, lifecycleOwner)
+                val captureSource = captureSourceFactory.create(lifecycleOwner)
                 val muxer = AndroidMp4RealMuxer(outputFile)
                 val sessionMetadata = SessionMetadata(
                     sessionId         = sessionId,
