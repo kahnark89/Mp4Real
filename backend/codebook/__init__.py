@@ -1,20 +1,35 @@
 """
-codebook
-========
-Phase 1 hand-curated behavioral primitive map for ArcShield/mp4Real.
+ArcShield Phase 1 behavioral primitive codebook.
 
-Per CLAUDE.md §5.1: For corpus depth < ~100 events, the codebook is a Python
-dict keyed by failure_mode_tag, matched by value-proximity scoring on per-track
-summary embeddings. Debuggable, inspectable, every entry readable.
+Public API:
+    PrimitiveCodebook      — dict management (load / save / HITL expand)
+    CosineCodebookMatcher  — cosine similarity scoring against primitives
+    Primitive              — canonical cause signature for a failure mode
+    CodebookMatchResult    — match output (primitive reference + delta vector)
+    CodebookExpansionRequest — HITL input to add a new primitive
 
-Default primitives are loaded from primitives/hollowell_ppvc1.yaml — the
-Hollowell PPVC Line 1 seed set covering common PVC extrusion failure modes.
+Architecture (CLAUDE.md §5.1, §5.3 / FIG. 8):
+  Phase 1: hand-curated dict keyed by failure_mode_tag, matched by cosine
+  similarity on per-instrument ratio feature vectors.
+  Phase 3+: replace with learned per-track causal Transformer embeddings + VICReg
+  contrastive training + residual VQ.
+
+mp4Real™, ArcShield™, CIAER™, and CIAER+™ are trademarks of Capps Consulting
+Company LLC. All rights reserved.
 """
 
-from __future__ import annotations
+from codebook.codebook import PrimitiveCodebook
+from codebook.matcher import CosineCodebookMatcher
+from codebook.schema import (
+    CodebookExpansionRequest,
+    CodebookMatchResult,
+    Primitive,
+)
 
-from .primitive import BehavioralPrimitive
-from .registry import PrimitiveRegistry
-from .matcher import PrimitiveMatcher, MatchResult
-
-__all__ = ["BehavioralPrimitive", "PrimitiveRegistry", "PrimitiveMatcher", "MatchResult"]
+__all__ = [
+    "PrimitiveCodebook",
+    "CosineCodebookMatcher",
+    "Primitive",
+    "CodebookMatchResult",
+    "CodebookExpansionRequest",
+]
