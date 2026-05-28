@@ -91,6 +91,20 @@ class SessionViewModel @Inject constructor(
     private val _voiceAnnotationActive = MutableStateFlow(false)
     val voiceAnnotationActive: StateFlow<Boolean> = _voiceAnnotationActive.asStateFlow()
 
+    // ---- Gaze dwell tracking (motion-proxy) ------------------------------
+    // Tracks consecutive still windows (lambdaMotion < STILL_THRESHOLD) to
+    // surface a dwell indicator in the UI. The LLR gate's own gazeDwellProvider
+    // is wired separately (Phase 2+ hardware). This is a UI-only indicator.
+
+    private val _dwellProgress = MutableStateFlow(0f)
+    val dwellProgress: StateFlow<Float> = _dwellProgress.asStateFlow()
+
+    private val _isDwelling = MutableStateFlow(false)
+    val isDwelling: StateFlow<Boolean> = _isDwelling.asStateFlow()
+
+    private val _lastDwellSec = MutableStateFlow(0f)
+    val lastDwellSec: StateFlow<Float> = _lastDwellSec.asStateFlow()
+
     // ---- Session log path (for export) -----------------------------------
 
     private val _lastSessionLogPath = MutableStateFlow<String?>(null)
@@ -200,7 +214,13 @@ class SessionViewModel @Inject constructor(
                 )
                 activeSession = session
 
+                val evalIntervalMs = config.llrConfig.evalIntervalMs
                 viewModelScope.launch {
+                    var stillCount = 0
+                    var dwellStartCount = 0
+                    val dwellWindowsNeeded = (3_000L / evalIntervalMs).toInt().coerceAtLeast(1)
+                    val stillThreshold = 0.05f
+
                     session.candidateWindows.collect { window ->
                         try { log.append(window) } catch (_: Exception) {}
                         _candidateCount.value += 1
@@ -209,6 +229,24 @@ class SessionViewModel @Inject constructor(
                             "LLRGate",
                             "λ=${"%.2f".format(window.lambda)} env=${"%.2f".format(window.lambdaEnv)} bio=${"%.2f".format(window.lambdaBio)} thresh=${window.thresholdReached} #${_candidateCount.value}",
                         )
+
+                        // Motion-proxy dwell tracking for UI overlay
+                        if (window.lambdaMotion < stillThreshold) {
+                            stillCount++
+                            _dwellProgress.value = (stillCount.toFloat() / dwellWindowsNeeded).coerceAtMost(1f)
+                            if (stillCount >= dwellWindowsNeeded && !_isDwelling.value) {
+                                _isDwelling.value = true
+                                dwellStartCount = _candidateCount.value
+                            }
+                        } else {
+                            if (_isDwelling.value) {
+                                val dwellSec = (_candidateCount.value - dwellStartCount) * evalIntervalMs / 1_000f
+                                _lastDwellSec.value = dwellSec
+                            }
+                            stillCount = 0
+                            _dwellProgress.value = 0f
+                            _isDwelling.value = false
+                        }
                     }
                 }
 
@@ -241,9 +279,11 @@ class SessionViewModel @Inject constructor(
         } finally {
             activeSession = null
             windowLog     = null
-            _cameraPreview.value = null
+            _cameraPreview.value         = null
             _voiceAnnotationActive.value = false
-            _latestWindow.value = null
+            _latestWindow.value          = null
+            _dwellProgress.value         = 0f
+            _isDwelling.value            = false
         }
     }
 

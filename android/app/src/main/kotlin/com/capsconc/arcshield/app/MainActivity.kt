@@ -32,6 +32,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.capsconc.arcshield.app.ui.ArcShieldTheme
 import com.capsconc.arcshield.app.ui.GateTuningScreen
 import com.capsconc.arcshield.app.ui.MainScreen
 import com.capsconc.arcshield.app.ui.SessionViewModel
@@ -86,7 +87,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
+            ArcShieldTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     val navController   = rememberNavController()
                     val sessionViewModel: SessionViewModel = hiltViewModel()
