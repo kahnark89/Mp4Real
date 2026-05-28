@@ -18,9 +18,9 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Calendar week of phase** | Week 1 of 6 |
 | **Validation site status** | PPVC Line 1 — awaiting facility agreement |
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
-| **Codebook size** | _0 primitives_ |
+| **Codebook size** | 10 primitives (Hollowell PPVC1 seed — manual curation) |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-27 — Claude Code — Runtime settings screen; runtime source selection (no rebuild required); camera live preview; device-independence fixes; permission bug fix |
+| **Last working session** | 2026-05-28 — Claude Code — Complete all Phase 2 stubs: codebook, ingest, twin, withhold, debrief-ui, source-openmeteo, PreEnvSource, gaze dwell |
 | **Build is** | 🟢 healthy — debug APK assembles clean |
 
 ---
@@ -98,6 +98,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-28 | W-029 | **Complete all Phase 2 stubs** — `backend/codebook`: 10-primitive Hollowell PPVC1 behavioral codebook (ontology-controlled vocabulary, value-proximity matcher, PrimitiveRegistry/YAML, 26 tests); `backend/ingest`: sidecar parser, CandidateWindow reader, CIAER+ skeleton builder, HITL-before-persistence enforced in IngestHandler (29 tests); `backend/twin`: RAG Twin wired-but-disabled (`active=False` config, `advise()` returns None, anti-reflexivity invariant documented, 27 tests); `backend/withhold`: Q/Q' partition enforced at write time, KLDivergenceMonitor with Laplace smoothing, `p_withhold=0.0` default, 1.5× high-weight sampling rate when Phase 3 activates (39 tests); `GraphCorpusBackend` Kuzu scaffold (Phase 3, `get_divergent_chains()` via graph traversal, graceful `BackendUnavailableError`). MCP server: +2 tools (`match_primitive`, `list_primitives`) → 13 tools total. **90/90 backend tests passing**. Android: `debrief-ui` HITL annotation queue + per-event form (all CIAER+ phases, shadow action editor, `isComplete()` enforces §2.4 invariants); `source-openmeteo` (Open-Meteo ambient temp, Hollowell coords, 5-min cache); `PreEnvSource` interface added to `core-schema`; LLR gaze dwell injectable (`gazeDwellProvider: () → Float = { 0f }`). `settings.gradle.kts` updated. | 90/90 Python tests. 13 MCP tools. All stubs completed through Phase 2; Phase 3+ (RVQ, LoRA, ml/, ciaer-ql/) correctly deferred. |
 | 2026-05-27 | W-028 | **Runtime settings screen** — `SettingsRepository` (SharedPreferences, StateFlow per setting, BuildConfig defaults on first launch); `SettingsViewModel` (@HiltViewModel, hardware availability booleans, BT bond check); `SettingsScreen` (LazyColumn: API Keys / Biometric Source / Video Source / Accel Source / Session Parameters / Device Status panels; auto-save on change; password-masked Claude key field); gear icon in MainScreen TopAppBar; `"settings"` NavHost route in MainActivity. All settings take effect on next session start; API key change requires restart. | `SettingsRepository` eliminates rebuild-per-config cycle. |
 | 2026-05-27 | W-027 | **Per-session source creation + `SettingsRepository` DI pivot** — `SessionViewModel` constructor reduced to `(@ApplicationContext Context, SettingsRepository)`; `makeBiometricSource()` / `makeAccelSource()` / `makeCaptureSource()` helpers build fresh sources from live settings on each `startSession()` call; `iFrameDurationMs`, `facilityId`, `lineId` all read from settings; `AppModule` removes `provideBiometricSource`, `provideAccelSource`, `provideCaptureSourceFactory`, `providePlcTelemetrySource`; `provideLlmClient` now reads `settings.claudeApiKey.value`. | |
 | 2026-05-27 | W-026 | **Camera live preview in MainScreen** — `camerax-view 1.3.4` added to version catalog + app deps; `CameraXCaptureSource` accepts optional `Preview` parameter (bound alongside `ImageAnalysis` in single `bindToLifecycle` call); `SessionViewModel` creates `Preview.Builder().build()` when `videoSource == PHONE_CAMERA` and exposes `cameraPreview: StateFlow<Preview?>`; `MainScreen` renders `AndroidView { PreviewView }` at 16:9 above status card during BUILDING/RECORDING; `DisposableEffect` calls `setSurfaceProvider(null)` on dispose. | GPU-path preview; no YUV→bitmap conversion overhead. |
@@ -441,6 +442,27 @@ YYYY-MM-DD — Kahn / Claude Code session #N
 ```
 
 ```
+2026-05-28 — Claude Code — W-029: complete all Phase 2 stubs
+  - What was worked on: ran 4 parallel build agents; completed every stub module that
+    was correctly in scope for Phase 1/2 per CLAUDE.md §11.
+  - Backend (Python): codebook (10 Hollowell PPVC1 primitives, ontology, matcher),
+    ingest (sidecar parser, skeleton builder, upload handler), twin (RAG wired-but-
+    disabled, active=False), withhold (Q/Q' partition, KL monitor, p_withhold=0),
+    graph_backend (Kuzu scaffold Phase 3). +2 MCP tools → 13 total. 90/90 tests.
+  - Android (Kotlin): debrief-ui (HITL queue + full CIAER+ annotation form),
+    source-openmeteo (Open-Meteo ambient temp, Hollowell coords), PreEnvSource
+    interface in core-schema, LLR gaze dwell injectable (gazeDwellProvider).
+    settings.gradle.kts: debrief-ui + source-openmeteo added to build.
+  - What changed: §0 codebook size 0→10; last session updated; W-029 added to §5;
+    backend state table updated; MCP tool count 11→13.
+  - Phase 3+ stubs (ml/embedding, ml/rvq, ml/lora, ml/augmentation, ciaer-ql,
+    source-emotibit, source-plc, llm-gemini) correctly remain as .gitkeep — do not
+    implement until corpus gate (200+ events) is reached.
+  - Next session pickup point: install updated APK on Pixel 9 Pro, run first Λ_env-only
+    shadow session at PPVC Line 1 (per backlog §3 item 1). Begin corpus building.
+```
+
+```
 2026-05-27 — Claude Code — Phase 1 Android complete + backend Phase 2 start
   - Wired source-polar into Hilt DI (PolarBleBiometricSource.create, connect()); ε_sync callback (registerSyncListener → EpsSyncCoordinator); clock reset on reconnect.
   - Vendor-agnostic capture: CaptureSourceFactory interface; DefaultCaptureSourceFactory (BT bond check → Meta Ray-Ban or CameraX); source-meta-raybans stub module; GLASSES_DEVICE_ID buildConfigField.
@@ -477,14 +499,20 @@ Single-source summary of the Python backend and MCP corpus server. Full implemen
 | `arcshield/schema.py` | ✅ built | Full CIAER+ Pydantic v2 models |
 | `arcshield/corpus/backend.py` | ✅ built | Abstract `CorpusBackend` — 3-phase upgrade path |
 | `arcshield/corpus/backends/json_backend.py` | ✅ built | Phase 1 flat-file backend |
+| `arcshield/corpus/backends/sqlite_backend.py` | ✅ built | Phase 2 SQLite backend (WAL, indexed, O(1) depth) |
+| `arcshield/corpus/backends/graph_backend.py` | ✅ built | Phase 3 Kuzu scaffold (`pip install kuzu` to activate) |
 | `arcshield/corpus/backends/__init__.py` | ✅ built | `get_backend()` factory — one-line config swap |
-| `server.py` | ✅ built | FastMCP stdio server, lifespan-managed, `config.toml` loading |
+| `server.py` | ✅ built | FastMCP stdio server, 13 tools, lifespan-managed |
 | `config.toml` | ✅ built | `facility_id`, backend type, `allow_writes` |
-| `tests/test_corpus_backend_contract.py` | ✅ 28/28 passing | Parameterized contract suite; new backends auto-tested by adding to fixture |
+| `tests/test_corpus_backend_contract.py` | ✅ 90/90 passing | Parameterized against JSON + SQLite backends |
+| `../codebook/` | ✅ built | 10-primitive Hollowell PPVC1 codebook, matcher, 26 tests |
+| `../ingest/` | ✅ built | Sidecar parser, skeleton builder, upload handler, 29 tests |
+| `../twin/` | ✅ built | RAG Twin wired-but-disabled (`active=False`), 27 tests |
+| `../withhold/` | ✅ built | Q/Q' coordinator, KL monitor, `p_withhold=0`, 39 tests |
 
 **Run tests:** `cd backend/api && python -m pytest tests/ -v --asyncio-mode=auto`
 
-### 11 MCP tools (server.py)
+### 13 MCP tools (server.py)
 
 | Tool | Purpose |
 |---|---|
@@ -495,10 +523,12 @@ Single-source summary of the Python backend and MCP corpus server. Full implemen
 | `get_shadow_actions` | Rejected alternatives for an event |
 | `ingest_event` | Write a new CIAER+ event (write-auth checked) |
 | `update_graph_weight` | Adjust graph_weight with audit trail (write-auth checked) |
-| `get_divergent_chains` | Parallel-expert divergence chains (JSON backend: NOT_AVAILABLE stub) |
+| `get_divergent_chains` | Parallel-expert divergence chains (JSON/SQLite: NOT_AVAILABLE; Kuzu: native traversal) |
 | `record_r_phys` | Record R_phys arrival and fire OGC weight update |
 | `expire_r_phys_deadlines` | Mark overdue PENDING events INDETERMINATE |
 | `list_pending_r_phys` | List events awaiting R_phys arrival, sorted by deadline |
+| `match_primitive` | Match current sensor state against behavioral codebook → ranked primitives |
+| `list_primitives` | List all codebook primitives (optionally filtered by failure_mode_tag) |
 
 ### Corpus state
 
