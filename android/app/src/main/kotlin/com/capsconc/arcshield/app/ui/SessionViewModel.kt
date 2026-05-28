@@ -83,10 +83,27 @@ class SessionViewModel @Inject constructor(
     private val _cameraPreview = MutableStateFlow<Preview?>(null)
     val cameraPreview: StateFlow<Preview?> = _cameraPreview.asStateFlow()
 
+    private val _latestWindow = MutableStateFlow<CandidateWindow?>(null)
+    val latestWindow: StateFlow<CandidateWindow?> = _latestWindow.asStateFlow()
+
     // ---- Voice annotation state ------------------------------------------
 
     private val _voiceAnnotationActive = MutableStateFlow(false)
     val voiceAnnotationActive: StateFlow<Boolean> = _voiceAnnotationActive.asStateFlow()
+
+    // ---- Gaze dwell tracking (motion-proxy) ------------------------------
+    // Tracks consecutive still windows (lambdaMotion < STILL_THRESHOLD) to
+    // surface a dwell indicator in the UI. The LLR gate's own gazeDwellProvider
+    // is wired separately (Phase 2+ hardware). This is a UI-only indicator.
+
+    private val _dwellProgress = MutableStateFlow(0f)
+    val dwellProgress: StateFlow<Float> = _dwellProgress.asStateFlow()
+
+    private val _isDwelling = MutableStateFlow(false)
+    val isDwelling: StateFlow<Boolean> = _isDwelling.asStateFlow()
+
+    private val _lastDwellSec = MutableStateFlow(0f)
+    val lastDwellSec: StateFlow<Float> = _lastDwellSec.asStateFlow()
 
     // ---- Session log path (for export) -----------------------------------
 
@@ -165,7 +182,25 @@ class SessionViewModel @Inject constructor(
                     captureSourceId   = captureSource.sourceId,
                     biometricSourceId = biometricSource.sourceId,
                     iFrameDurationMs  = settings.iFrameDurationS.value * 1000L,
-                    llrConfig         = LlrConfig(shadowMode = true),
+                    llrConfig         = LlrConfig(
+                        shadowMode               = true,
+                        tau                      = settings.gateTau.value,
+                        acousticEnabled          = settings.acousticEnabled.value,
+                        accelEnabled             = settings.accelEnabled.value,
+                        motionEnabled            = settings.motionEnabled.value,
+                        gazeEnabled              = settings.gazeEnabled.value,
+                        hrEnabled                = settings.hrEnabled.value,
+                        rmssdEnabled             = settings.rmssdEnabled.value,
+                        hrvNlEnabled             = settings.hrvNlEnabled.value,
+                        lightAccelThresholdMg    = settings.lightAccelThresholdMg.value,
+                        moderateAccelThresholdMg = settings.moderateAccelThresholdMg.value,
+                        vigorousAccelThresholdMg = settings.vigorousAccelThresholdMg.value,
+                        lightGateFactor          = settings.lightGateFactor.value,
+                        moderateGateFactor       = settings.moderateGateFactor.value,
+                        vigorousGateFactor       = settings.vigorousGateFactor.value,
+                        gazeDwellBaselineSec     = settings.gazeDwellBaselineSec.value,
+                        gazeDwellVarianceSec     = settings.gazeDwellVarianceSec.value,
+                    ),
                     metaTracks        = listOf(
                         TrackType.AccelMeta,
                         TrackType.BiometricMeta,
@@ -179,20 +214,45 @@ class SessionViewModel @Inject constructor(
                 )
                 activeSession = session
 
+                val evalIntervalMs = config.llrConfig.evalIntervalMs
                 viewModelScope.launch {
+                    var stillCount = 0
+                    var dwellStartCount = 0
+                    val dwellWindowsNeeded = (3_000L / evalIntervalMs).toInt().coerceAtLeast(1)
+                    val stillThreshold = 0.05f
+
                     session.candidateWindows.collect { window ->
                         try { log.append(window) } catch (_: Exception) {}
                         _candidateCount.value += 1
+                        _latestWindow.value = window
                         AppLogger.info(
                             "LLRGate",
                             "λ=${"%.2f".format(window.lambda)} env=${"%.2f".format(window.lambdaEnv)} bio=${"%.2f".format(window.lambdaBio)} thresh=${window.thresholdReached} #${_candidateCount.value}",
                         )
+
+                        // Motion-proxy dwell tracking for UI overlay
+                        if (window.lambdaMotion < stillThreshold) {
+                            stillCount++
+                            _dwellProgress.value = (stillCount.toFloat() / dwellWindowsNeeded).coerceAtMost(1f)
+                            if (stillCount >= dwellWindowsNeeded && !_isDwelling.value) {
+                                _isDwelling.value = true
+                                dwellStartCount = _candidateCount.value
+                            }
+                        } else {
+                            if (_isDwelling.value) {
+                                val dwellSec = (_candidateCount.value - dwellStartCount) * evalIntervalMs / 1_000f
+                                _lastDwellSec.value = dwellSec
+                            }
+                            stillCount = 0
+                            _dwellProgress.value = 0f
+                            _isDwelling.value = false
+                        }
                     }
                 }
 
                 session.start()
                 _sessionState.value = SessionState.Recording
-                AppLogger.info(TAG, "LLR gate live — shadow mode — τ=${LlrConfig().tau}")
+                AppLogger.info(TAG, "LLR gate live — shadow mode — τ=${settings.gateTau.value}")
 
             } catch (e: Exception) {
                 _cameraPreview.value = null
@@ -219,8 +279,11 @@ class SessionViewModel @Inject constructor(
         } finally {
             activeSession = null
             windowLog     = null
-            _cameraPreview.value = null
+            _cameraPreview.value         = null
             _voiceAnnotationActive.value = false
+            _latestWindow.value          = null
+            _dwellProgress.value         = 0f
+            _isDwelling.value            = false
         }
     }
 
@@ -232,9 +295,6 @@ class SessionViewModel @Inject constructor(
     }
 
     // ---- Manual trigger (OPERATOR_INITIATED) --------------------------------
-    // Creates a synthetic CandidateWindow with λ=0 and appends it to the session
-    // log so it enters the debrief queue like any gate-fired window. The operator
-    // use case: "I see something happening that the gate hasn't caught yet."
 
     fun manualTrigger() {
         if (_sessionState.value !is SessionState.Recording) return
@@ -260,7 +320,6 @@ class SessionViewModel @Inject constructor(
     }
 
     // ---- Voice annotation ---------------------------------------------------
-    // Phase 1/2: toggle only — actual audio recording wired with VoiceElicitationManager (Phase 3).
 
     fun toggleVoiceAnnotation() {
         if (_sessionState.value !is SessionState.Recording) return

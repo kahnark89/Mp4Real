@@ -32,6 +32,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.capsconc.arcshield.app.ui.ArcShieldTheme
+import com.capsconc.arcshield.app.ui.GateTuningScreen
 import com.capsconc.arcshield.app.ui.MainScreen
 import com.capsconc.arcshield.app.ui.SessionViewModel
 import com.capsconc.arcshield.app.ui.SettingsScreen
@@ -85,7 +87,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
+            ArcShieldTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     val navController   = rememberNavController()
                     val sessionViewModel: SessionViewModel = hiltViewModel()
@@ -99,6 +101,7 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToLabeler  = { navController.navigate("labeler") },
                                 onNavigateToSettings = { navController.navigate("settings") },
                                 onNavigateToDebrief  = { navController.navigate("debrief") },
+                                onNavigateToGate     = { navController.navigate("gate") },
                                 onRequestPermissions = {
                                     pendingStart = {
                                         sessionViewModel.startSession(this@MainActivity)
@@ -117,6 +120,14 @@ class MainActivity : ComponentActivity() {
                         composable("settings") {
                             SettingsScreen(
                                 onNavigateBack = { navController.popBackStack() },
+                            )
+                        }
+
+                        // ── Gate tuning ───────────────────────────────────
+                        composable("gate") {
+                            GateTuningScreen(
+                                onNavigateBack   = { navController.popBackStack() },
+                                latestWindowFlow = sessionViewModel.latestWindow,
                             )
                         }
 

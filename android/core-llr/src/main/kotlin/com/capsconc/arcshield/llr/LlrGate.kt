@@ -135,34 +135,33 @@ fun llrGate(
 
         val spectrum = latestSpectrum.get()
 
-        val lambdaAcoustic: Float = if (spectrum != null) {
+        val lambdaAcoustic: Float = if (config.acousticEnabled && spectrum != null) {
             KlDivergence.compute(baseline.acousticSpectrum, spectrum)
-        } else {
-            0f
-        }
+        } else 0f
 
-        val rms           = latestRmsRef.get()
-        val rmsDeviation  = rms - baseline.accelRmsBaseline
-        val lambdaAccel   = max(
-            0f,
-            (rmsDeviation * rmsDeviation) / (2f * baseline.accelRmsVariance)
-        )
+        // Accel RMS is always computed for the activity gate even when accelEnabled = false.
+        val rms          = latestRmsRef.get()
+        val lambdaAccel: Float = if (config.accelEnabled) {
+            val dev = rms - baseline.accelRmsBaseline
+            max(0f, (dev * dev) / (2f * baseline.accelRmsVariance))
+        } else 0f
 
         val mad          = latestMadRef.get()
-        val lambdaMotion: Float = if (mad != null && baseline.motionAvailable) {
+        val lambdaMotion: Float = if (config.motionEnabled && mad != null && baseline.motionAvailable) {
             val dev = mad - baseline.motionBaselineMad
             max(0f, (dev * dev) / (2f * baseline.motionVarianceMad))
         } else 0f
 
         // Λ_gaze: sustained attention dwell on visual anchor.
-        // Provider is 0f until gaze tracking hardware is wired (Meta Ray-Bans Gen 2, Phase 2+).
-        // The provider is injectable so gaze sources (eye tracker, manual operator input)
-        // can feed in without restructuring the gate.
-        val rawDwell      = gazeDwellProvider()
-        val baselineDwell = config.gazeDwellBaselineSec
-        val lambdaGaze: Float = if (rawDwell > baselineDwell && config.gazeDwellVarianceSec > 0f) {
-            val dev = rawDwell - baselineDwell
-            kotlin.math.max(0f, (dev * dev) / (2f * config.gazeDwellVarianceSec))
+        // gazeEnabled = false by default (no eye-tracking HW in Phase 1).
+        // When enabled, gazeDwellProvider must supply real fixation durations.
+        val rawDwell  = gazeDwellProvider()
+        val lambdaGaze: Float = if (config.gazeEnabled
+            && config.gazeDwellVarianceSec > 0f
+            && rawDwell > config.gazeDwellBaselineSec
+        ) {
+            val dev = rawDwell - config.gazeDwellBaselineSec
+            max(0f, (dev * dev) / (2f * config.gazeDwellVarianceSec))
         } else 0f
 
         // ---- Λ_bio -------------------------------------------------------
@@ -171,7 +170,8 @@ fun llrGate(
         val lambdaBio: Float
 
         if (bioSnap != null && baseline.biometricAvailable) {
-            // Activity gate: high physical exertion confounds HR/HRV signal
+            // Activity gate: high physical exertion confounds HR/HRV signal.
+            // Uses raw accel RMS regardless of accelEnabled so gating always works.
             activityGate = when {
                 rms >= config.vigorousAccelThresholdMg -> config.vigorousGateFactor
                 rms >= config.moderateAccelThresholdMg -> config.moderateGateFactor
@@ -179,17 +179,17 @@ fun llrGate(
                 else                                   -> 1.0f
             }
 
-            val lambdaHr: Float = if (bioSnap.hasHr) {
+            val lambdaHr: Float = if (config.hrEnabled && bioSnap.hasHr) {
                 val delta = bioSnap.hrMeanBpm - baseline.hrBaselineBpm
                 max(0f, (delta * delta) / (2f * baseline.hrVarianceBpm))
             } else 0f
 
-            val lambdaRmssd: Float = if (bioSnap.hasRr && baseline.rmssdBaselineMs > 0f) {
+            val lambdaRmssd: Float = if (config.rmssdEnabled && bioSnap.hasRr && baseline.rmssdBaselineMs > 0f) {
                 val delta = bioSnap.rmssdMs - baseline.rmssdBaselineMs
                 max(0f, (delta * delta) / (2f * baseline.rmssdVarianceMs))
             } else 0f
 
-            val lambdaHrvNl: Float = if (bioSnap.hasNonlinearHrv && baseline.nonlinearHrvAvailable) {
+            val lambdaHrvNl: Float = if (config.hrvNlEnabled && bioSnap.hasNonlinearHrv && baseline.nonlinearHrvAvailable) {
                 val lambdaSd1: Float = if (baseline.sd1VarianceMs > 0f) {
                     val d = bioSnap.sd1Ms - baseline.sd1BaselineMs
                     max(0f, (d * d) / (2f * baseline.sd1VarianceMs))
