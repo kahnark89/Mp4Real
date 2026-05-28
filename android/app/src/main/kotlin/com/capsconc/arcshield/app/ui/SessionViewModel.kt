@@ -60,12 +60,16 @@ class SessionViewModel @Inject constructor(
     private val settings: SettingsRepository,
 ) : ViewModel() {
 
-    // ---- Session state ----------------------------------------------------
+    companion object {
+        private const val TAG = "SessionVM"
+    }
+
+    // ---- Session state ---------------------------------------------------
 
     sealed class SessionState {
         object Idle      : SessionState()
-        object Building  : SessionState()   // I-frame baseline in progress
-        object Recording : SessionState()   // LLR gate live, shadow mode
+        object Building  : SessionState()
+        object Recording : SessionState()
         data class Finished(val metadata: SessionMetadata) : SessionState()
         data class Error(val message: String) : SessionState()
     }
@@ -79,12 +83,28 @@ class SessionViewModel @Inject constructor(
     private val _cameraPreview = MutableStateFlow<Preview?>(null)
     val cameraPreview: StateFlow<Preview?> = _cameraPreview.asStateFlow()
 
+    private val _latestWindow = MutableStateFlow<CandidateWindow?>(null)
+    val latestWindow: StateFlow<CandidateWindow?> = _latestWindow.asStateFlow()
+
+    // ---- Voice annotation state ------------------------------------------
+
+    private val _voiceAnnotationActive = MutableStateFlow(false)
+    val voiceAnnotationActive: StateFlow<Boolean> = _voiceAnnotationActive.asStateFlow()
+
+    // ---- Session log path (for export) -----------------------------------
+
+    private val _lastSessionLogPath = MutableStateFlow<String?>(null)
+    val lastSessionLogPath: StateFlow<String?> = _lastSessionLogPath.asStateFlow()
+
+    // ---- Console log (reads from AppLogger singleton) -------------------
+
+    val appLogs: StateFlow<List<LogEntry>> = AppLogger.entries
+
     // ---- Internal session objects ----------------------------------------
 
     private var activeSession: CaptureSession? = null
     private var windowLog: CandidateWindowLog? = null
 
-    // candidateWindows delegates to the active session's SharedFlow or empty.
     val candidateWindows: Flow<CandidateWindow>
         get() = activeSession?.candidateWindows ?: emptyFlow()
 
@@ -94,6 +114,7 @@ class SessionViewModel @Inject constructor(
         if (_sessionState.value != SessionState.Idle) return
 
         _sessionState.value = SessionState.Building
+        AppLogger.info(TAG, "Session start requested")
 
         viewModelScope.launch {
             try {
@@ -105,6 +126,10 @@ class SessionViewModel @Inject constructor(
 
                 val shadowDir = File(context.filesDir, "shadow_mode").also { it.mkdirs() }
                 val logFile = File(shadowDir, "${timestamp}_$sessionId.ndjson")
+                _lastSessionLogPath.value = logFile.absolutePath
+
+                AppLogger.info(TAG, "id=$sessionId facility=${settings.facilityId.value} line=${settings.lineId.value}")
+                AppLogger.info(TAG, "Building I-frame baseline (~${settings.iFrameDurationS.value}s)…")
 
                 val preview = if (settings.videoSource.value == VideoSourceSetting.PHONE_CAMERA) {
                     Preview.Builder().build().also { _cameraPreview.value = it }
@@ -113,8 +138,10 @@ class SessionViewModel @Inject constructor(
                 }
 
                 val biometricSource = makeBiometricSource()
-                val accelSource = makeAccelSource()
-                val captureSource = makeCaptureSource(lifecycleOwner, preview)
+                val accelSource     = makeAccelSource()
+                val captureSource   = makeCaptureSource(lifecycleOwner, preview)
+
+                AppLogger.debug(TAG, "Sources: video=${captureSource.sourceId} bio=${biometricSource.sourceId}")
 
                 val muxer = AndroidMp4RealMuxer(outputFile)
                 val sessionMetadata = SessionMetadata(
@@ -141,7 +168,25 @@ class SessionViewModel @Inject constructor(
                     captureSourceId   = captureSource.sourceId,
                     biometricSourceId = biometricSource.sourceId,
                     iFrameDurationMs  = settings.iFrameDurationS.value * 1000L,
-                    llrConfig         = LlrConfig(shadowMode = true),
+                    llrConfig         = LlrConfig(
+                        shadowMode               = true,
+                        tau                      = settings.gateTau.value,
+                        acousticEnabled          = settings.acousticEnabled.value,
+                        accelEnabled             = settings.accelEnabled.value,
+                        motionEnabled            = settings.motionEnabled.value,
+                        gazeEnabled              = settings.gazeEnabled.value,
+                        hrEnabled                = settings.hrEnabled.value,
+                        rmssdEnabled             = settings.rmssdEnabled.value,
+                        hrvNlEnabled             = settings.hrvNlEnabled.value,
+                        lightAccelThresholdMg    = settings.lightAccelThresholdMg.value,
+                        moderateAccelThresholdMg = settings.moderateAccelThresholdMg.value,
+                        vigorousAccelThresholdMg = settings.vigorousAccelThresholdMg.value,
+                        lightGateFactor          = settings.lightGateFactor.value,
+                        moderateGateFactor       = settings.moderateGateFactor.value,
+                        vigorousGateFactor       = settings.vigorousGateFactor.value,
+                        gazeDwellBaselineSec     = settings.gazeDwellBaselineSec.value,
+                        gazeDwellVarianceSec     = settings.gazeDwellVarianceSec.value,
+                    ),
                     metaTracks        = listOf(
                         TrackType.AccelMeta,
                         TrackType.BiometricMeta,
@@ -159,15 +204,23 @@ class SessionViewModel @Inject constructor(
                     session.candidateWindows.collect { window ->
                         try { log.append(window) } catch (_: Exception) {}
                         _candidateCount.value += 1
+                        _latestWindow.value = window
+                        AppLogger.info(
+                            "LLRGate",
+                            "λ=${"%.2f".format(window.lambda)} env=${"%.2f".format(window.lambdaEnv)} bio=${"%.2f".format(window.lambdaBio)} thresh=${window.thresholdReached} #${_candidateCount.value}",
+                        )
                     }
                 }
 
                 session.start()
                 _sessionState.value = SessionState.Recording
+                AppLogger.info(TAG, "LLR gate live — shadow mode — τ=${settings.gateTau.value}")
 
             } catch (e: Exception) {
                 _cameraPreview.value = null
-                _sessionState.value = SessionState.Error(e.message ?: "session failed")
+                val msg = e.message ?: "session start failed"
+                AppLogger.error(TAG, msg)
+                _sessionState.value = SessionState.Error(msg)
             }
         }
     }
@@ -176,19 +229,67 @@ class SessionViewModel @Inject constructor(
         val session = activeSession ?: return
         try {
             val metadata = session.close()
+            AppLogger.info(
+                TAG,
+                "Session stopped — ${_candidateCount.value} candidates — ε_sync ${metadata.epsSyncNanos / 1_000_000}ms",
+            )
             _sessionState.value = SessionState.Finished(metadata)
         } catch (e: Exception) {
-            _sessionState.value = SessionState.Error(e.message ?: "stop failed")
+            val msg = e.message ?: "stop failed"
+            AppLogger.error(TAG, msg)
+            _sessionState.value = SessionState.Error(msg)
         } finally {
             activeSession = null
-            windowLog = null
+            windowLog     = null
             _cameraPreview.value = null
+            _voiceAnnotationActive.value = false
+            _latestWindow.value = null
         }
     }
 
     fun resetToIdle() {
         _sessionState.value = SessionState.Idle
         _candidateCount.value = 0
+        _lastSessionLogPath.value = null
+        AppLogger.info(TAG, "Reset to Idle")
+    }
+
+    // ---- Manual trigger (OPERATOR_INITIATED) --------------------------------
+
+    fun manualTrigger() {
+        if (_sessionState.value !is SessionState.Recording) return
+        val now = SystemClock.elapsedRealtimeNanos()
+        val syntheticWindow = CandidateWindow(
+            detectedAtNanos  = now,
+            lambda           = 0f,
+            lambdaEnv        = 0f,
+            lambdaAcoustic   = 0f,
+            lambdaAccel      = 0f,
+            lambdaMotion     = 0f,
+            lambdaGaze       = 0f,
+            lambdaBio        = 0f,
+            activityGate     = 1f,
+            thresholdReached = true,
+            shadowMode       = true,
+        )
+        viewModelScope.launch {
+            try { windowLog?.append(syntheticWindow) } catch (_: Exception) {}
+            _candidateCount.value += 1
+        }
+        AppLogger.info("ManualTrigger", "OPERATOR_INITIATED window logged — count ${_candidateCount.value + 1}")
+    }
+
+    // ---- Voice annotation ---------------------------------------------------
+
+    fun toggleVoiceAnnotation() {
+        if (_sessionState.value !is SessionState.Recording) return
+        val next = !_voiceAnnotationActive.value
+        _voiceAnnotationActive.value = next
+        if (next) {
+            AppLogger.info("Voice", "Voice annotation recording started — attach to last candidate window")
+        } else {
+            AppLogger.info("Voice", "Voice annotation stopped")
+        }
     }
 
     override fun onCleared() {
@@ -202,30 +303,43 @@ class SessionViewModel @Inject constructor(
     private fun makeBiometricSource(): BiometricSource {
         val deviceId = settings.polarDeviceId.value
         return when (settings.biometricSource.value) {
-            BiometricSourceSetting.NONE -> NullBiometricSource()
+            BiometricSourceSetting.NONE -> {
+                AppLogger.debug(TAG, "BiometricSource: NONE")
+                NullBiometricSource()
+            }
             BiometricSourceSetting.POLAR_H10 -> {
-                if (deviceId.isBlank()) return NullBiometricSource()
+                if (deviceId.isBlank()) {
+                    AppLogger.warn(TAG, "POLAR_H10 selected but POLAR_DEVICE_ID blank — using NullBiometricSource")
+                    return NullBiometricSource()
+                }
                 try {
+                    AppLogger.info(TAG, "Connecting Polar H10 ($deviceId)…")
                     PolarBleBiometricSource.create(
                         context    = context,
                         deviceId   = deviceId,
                         deviceType = PolarDeviceType.H10,
                         scope      = viewModelScope,
                     ).also { it.connect() }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    AppLogger.warn(TAG, "Polar H10 init failed (${e.message}) — using NullBiometricSource")
                     NullBiometricSource()
                 }
             }
             BiometricSourceSetting.POLAR_VERITY_SENSE -> {
-                if (deviceId.isBlank()) return NullBiometricSource()
+                if (deviceId.isBlank()) {
+                    AppLogger.warn(TAG, "POLAR_VERITY_SENSE selected but POLAR_DEVICE_ID blank — using NullBiometricSource")
+                    return NullBiometricSource()
+                }
                 try {
+                    AppLogger.info(TAG, "Connecting Polar Verity Sense ($deviceId)…")
                     PolarBleBiometricSource.create(
                         context    = context,
                         deviceId   = deviceId,
                         deviceType = PolarDeviceType.VERITY_SENSE,
                         scope      = viewModelScope,
                     ).also { it.connect() }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    AppLogger.warn(TAG, "Polar Verity Sense init failed (${e.message}) — using NullBiometricSource")
                     NullBiometricSource()
                 }
             }
@@ -233,19 +347,29 @@ class SessionViewModel @Inject constructor(
     }
 
     private fun makeAccelSource(): AccelSource? = when (settings.accelSource.value) {
-        AccelSourceSetting.PHONE_IMU -> PhoneImuAccelSource(context)
-        // POLAR: let CaptureSession fall back to biometricSource.accelerometer()
-        AccelSourceSetting.POLAR -> null
+        AccelSourceSetting.PHONE_IMU -> {
+            AppLogger.debug(TAG, "AccelSource: PhoneIMU")
+            PhoneImuAccelSource(context)
+        }
+        AccelSourceSetting.POLAR -> {
+            AppLogger.debug(TAG, "AccelSource: Polar (via BiometricSource.accelerometer())")
+            null
+        }
     }
 
     private fun makeCaptureSource(lifecycleOwner: LifecycleOwner, preview: Preview?): CaptureSource {
         return when (settings.videoSource.value) {
-            VideoSourceSetting.PHONE_CAMERA -> CameraXCaptureSource(context, lifecycleOwner, preview = preview)
+            VideoSourceSetting.PHONE_CAMERA -> {
+                AppLogger.debug(TAG, "CaptureSource: CameraX")
+                CameraXCaptureSource(context, lifecycleOwner, preview = preview)
+            }
             VideoSourceSetting.GLASSES -> {
                 val mac = settings.glassesDeviceMac.value
                 if (MetaRayBansCaptureSource.isAvailable(context, mac)) {
+                    AppLogger.info(TAG, "CaptureSource: Meta Ray-Bans ($mac)")
                     MetaRayBansCaptureSource(context, lifecycleOwner, mac)
                 } else {
+                    AppLogger.warn(TAG, "Meta Ray-Bans not available — falling back to CameraX")
                     CameraXCaptureSource(context, lifecycleOwner, preview = preview)
                 }
             }

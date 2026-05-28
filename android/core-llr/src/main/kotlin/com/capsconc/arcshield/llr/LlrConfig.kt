@@ -39,6 +39,24 @@ data class LlrConfig(
     val postWindowMs: Long = 60_000L,
 
     // ------------------------------------------------------------------
+    // Per-channel enable flags. All default to true except gaze, which
+    // requires eye-tracking hardware not available in Phase 1 (Meta
+    // Ray-Bans Gen 2). Setting a flag to false zeroes out that component's
+    // contribution to Λ without affecting other channels.
+    // Note: accel producer still runs when accelEnabled = false because
+    // the rolling RMS is needed for activity-gating Λ_bio.
+    // ------------------------------------------------------------------
+
+    val acousticEnabled: Boolean = true,
+    val accelEnabled:    Boolean = true,
+    val motionEnabled:   Boolean = true,
+    /** Off by default — requires eye-tracking HW. Enable via Gate Tuning screen when available. */
+    val gazeEnabled:     Boolean = false,
+    val hrEnabled:       Boolean = true,
+    val rmssdEnabled:    Boolean = true,
+    val hrvNlEnabled:    Boolean = true,
+
+    // ------------------------------------------------------------------
     // Λ_bio: activity gating thresholds and gate factors.
     // High physical activity confounds cardiovascular HRV signal, so Λ_bio
     // is scaled down during moderate/vigorous work (CLAUDE.md §4.1).
@@ -63,9 +81,16 @@ data class LlrConfig(
     /** Λ_bio scaling factor for vigorous activity (0.0–1.0). */
     val vigorousGateFactor: Float = 0.1f,
 
-    /** Baseline gaze dwell duration in seconds (shift-start mean). Default 0 = disabled. */
-    val gazeDwellBaselineSec: Float = 0f,
+    /**
+     * Baseline gaze dwell (seconds). 2s = typical operator scan pattern;
+     * sustained fixation above this baseline triggers Λ_gaze.
+     * Only used when gazeEnabled = true.
+     */
+    val gazeDwellBaselineSec: Float = 2.0f,
 
-    /** Gaze dwell variance (seconds²) for Gaussian-shift GLR. Default 0 = disabled. */
-    val gazeDwellVarianceSec: Float = 0f,
+    /**
+     * Gaze dwell variance (s²). σ ≈ 1.4s with default 2.0; Λ_gaze fires
+     * meaningfully when dwell > ~4–5s. Only used when gazeEnabled = true.
+     */
+    val gazeDwellVarianceSec: Float = 2.0f,
 )
