@@ -64,6 +64,7 @@ dependencies {
     implementation(project(":core-llr"))
     implementation(project(":core-schema"))
     implementation(project(":shadow-mode-labeler"))
+    implementation(project(":debrief-ui"))
     implementation(project(":source-camerax"))
     implementation(project(":source-imu"))
     implementation(project(":source-polar"))
