@@ -521,7 +521,9 @@ YYYY-MM-DD — Kahn / Claude Code session #N
 
 Single-source summary of the Python backend and MCP corpus server. Full implementation specs for deferred MOD items are in `backend/api/SESSION_LOG.md` — read that file when actually implementing a MOD item, not just triaging.
 
-### Current build state (as of 2026-05-27)
+### Current build state (as of 2026-05-28)
+
+#### Backend (Python)
 
 | File | Status | Notes |
 |---|---|---|
@@ -540,6 +542,31 @@ Single-source summary of the Python backend and MCP corpus server. Full implemen
 | `../withhold/` | ✅ built | Q/Q' coordinator, KL monitor, `p_withhold=0`, 39 tests |
 
 **Run tests:** `cd backend/api && python -m pytest tests/ -v --asyncio-mode=auto`
+
+#### Android (Kotlin)
+
+| Module | Status | Notes |
+|---|---|---|
+| `:app` | ✅ built | Hilt DI, Compose NavHost, 5 routes (main/labeler/settings/debrief/annotation) |
+| `:core-capture` | ✅ built | Ring buffer, mux pipeline, ε_sync coordinator |
+| `:core-codec` | ✅ built | mp4Real fMP4 writer, SessionMetadata sidecar |
+| `:core-llr` | ✅ built | Λ_env + Λ_bio gate, gaze dwell injectable, nonlinear HRV |
+| `:core-schema` | ✅ built | All provider interfaces incl. PreEnvSource, PlcTelemetrySource, LlmClient |
+| `:shadow-mode-labeler` | ✅ built | NDJSON log, NonMaxSuppressor, TauCalibrator, Compose UI, ExoPlayer playback |
+| `:debrief-ui` | ✅ built | HITL queue + full CIAER+ annotation form; wired into `:app` NavHost (W-031) |
+| `:source-camerax` | ✅ built | CameraX CaptureSource; YUV→NV21; audio via AudioRecord + BT SCO |
+| `:source-imu` | ✅ built | PhoneImuAccelSource (SensorManager TYPE_ACCELEROMETER) |
+| `:source-polar` | ✅ built | H10 + Verity Sense PMD; ε_sync anchor; offline backfill; BiometricGap emission |
+| `:source-meta-raybans` | ✅ stub | Phase 2 stub — emptyFlow(); swaps in at Gen 2 |
+| `:source-openmeteo` | ✅ built | Open-Meteo ambient temp, Hollowell coords, 5-min cache |
+| `:source-emotibit` | ⏸ deferred | Phase 3+ — hardware-gated |
+| `:source-plc` | ⏸ deferred | Phase 3+ — PLC API access required |
+| `:source-vision-telemetry` | ✅ built | VisionTelemetrySource PlcTelemetrySource via LLM optical gauge reading |
+| `:llm-claude` | ✅ built | ClaudeVisionClient (`providerId="claude"`) — 12 tests |
+| `:llm-gemini` | ✅ built | GeminiVisionClient (`providerId="gemini"`) — 14 tests (W-030) |
+| `AppLogger` | ✅ built | Process-lifetime log ring buffer; consumed by ConsolePanel (W-031) |
+| `ConsolePanel` | ✅ built | Dark card, auto-scroll, color-coded by level, collapsible (W-031) |
+| `MainScreen` | ✅ built | 6-section action grid + ConsolePanel; all corpus-collection buttons (W-031) |
 
 ### 13 MCP tools (server.py)
 
