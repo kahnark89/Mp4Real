@@ -18,8 +18,8 @@ dependencyResolutionManagement {
 rootProject.name = "arcshield-android"
 
 // Only modules that currently have a build.gradle.kts are included.
-// Stub modules still pending: source-emotibit, source-plc, llm-gemini
-// (debrief-ui and source-openmeteo are now implemented above)
+// Stub modules still pending: source-emotibit, source-plc (device/data-gated)
+// llm-gemini, debrief-ui, source-openmeteo now implemented.
 include(":app")
 include(":core-capture")
 include(":core-codec")
@@ -35,3 +35,4 @@ include(":llm-claude")
 // Previously stubs, now implemented:
 include(":source-openmeteo")
 include(":debrief-ui")
+include(":llm-gemini")

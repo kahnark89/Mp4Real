@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | 10 primitives (Hollowell PPVC1 seed — manual curation) |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-28 — Claude Code — Complete all Phase 2 stubs: codebook, ingest, twin, withhold, debrief-ui, source-openmeteo, PreEnvSource, gaze dwell |
+| **Last working session** | 2026-05-28 — Claude Code — W-030: llm-gemini module (GeminiVisionClient, VideoFrameEncoder, 14 unit tests, registered in settings.gradle.kts) |
 | **Build is** | 🟢 healthy — debug APK assembles clean |
 
 ---
@@ -98,6 +98,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-28 | W-030 | **`llm-gemini` module** — `GeminiVisionClient` implementing `LlmClient` against the Gemini `generateContent` API (model `gemini-2.0-flash`, inline_data image format); `VideoFrameEncoder` (NV21→JPEG→Base64, duplicated `internal` to this module); `parseGaugeValue()` shares identical regex logic with `ClaudeVisionClient`; `generateGuidance()` Phase 3 stub; `build.gradle.kts` mirrors llm-claude; `AndroidManifest.xml` (INTERNET permission); 14 unit tests (10 `parseGaugeValue` cases + Gemini JSON parse verification + `buildRequestJson` no-frame + `generationConfig` maxOutputTokens + `contents` array structure); `:llm-gemini` registered in `settings.gradle.kts`. All provider-abstraction LLM modules now implemented: `ClaudeVisionClient` (`providerId="claude"`) and `GeminiVisionClient` (`providerId="gemini"`). Remaining stubs (source-emotibit, source-plc) remain device/data-gated. | Provider abstraction complete through Phase 2. LLM swap is a DI binding change. |
 | 2026-05-28 | W-029 | **Complete all Phase 2 stubs** — `backend/codebook`: 10-primitive Hollowell PPVC1 behavioral codebook (ontology-controlled vocabulary, value-proximity matcher, PrimitiveRegistry/YAML, 26 tests); `backend/ingest`: sidecar parser, CandidateWindow reader, CIAER+ skeleton builder, HITL-before-persistence enforced in IngestHandler (29 tests); `backend/twin`: RAG Twin wired-but-disabled (`active=False` config, `advise()` returns None, anti-reflexivity invariant documented, 27 tests); `backend/withhold`: Q/Q' partition enforced at write time, KLDivergenceMonitor with Laplace smoothing, `p_withhold=0.0` default, 1.5× high-weight sampling rate when Phase 3 activates (39 tests); `GraphCorpusBackend` Kuzu scaffold (Phase 3, `get_divergent_chains()` via graph traversal, graceful `BackendUnavailableError`). MCP server: +2 tools (`match_primitive`, `list_primitives`) → 13 tools total. **90/90 backend tests passing**. Android: `debrief-ui` HITL annotation queue + per-event form (all CIAER+ phases, shadow action editor, `isComplete()` enforces §2.4 invariants); `source-openmeteo` (Open-Meteo ambient temp, Hollowell coords, 5-min cache); `PreEnvSource` interface added to `core-schema`; LLR gaze dwell injectable (`gazeDwellProvider: () → Float = { 0f }`). `settings.gradle.kts` updated. | 90/90 Python tests. 13 MCP tools. All stubs completed through Phase 2; Phase 3+ (RVQ, LoRA, ml/, ciaer-ql/) correctly deferred. |
 | 2026-05-27 | W-028 | **Runtime settings screen** — `SettingsRepository` (SharedPreferences, StateFlow per setting, BuildConfig defaults on first launch); `SettingsViewModel` (@HiltViewModel, hardware availability booleans, BT bond check); `SettingsScreen` (LazyColumn: API Keys / Biometric Source / Video Source / Accel Source / Session Parameters / Device Status panels; auto-save on change; password-masked Claude key field); gear icon in MainScreen TopAppBar; `"settings"` NavHost route in MainActivity. All settings take effect on next session start; API key change requires restart. | `SettingsRepository` eliminates rebuild-per-config cycle. |
 | 2026-05-27 | W-027 | **Per-session source creation + `SettingsRepository` DI pivot** — `SessionViewModel` constructor reduced to `(@ApplicationContext Context, SettingsRepository)`; `makeBiometricSource()` / `makeAccelSource()` / `makeCaptureSource()` helpers build fresh sources from live settings on each `startSession()` call; `iFrameDurationMs`, `facilityId`, `lineId` all read from settings; `AppModule` removes `provideBiometricSource`, `provideAccelSource`, `provideCaptureSourceFactory`, `providePlcTelemetrySource`; `provideLlmClient` now reads `settings.claudeApiKey.value`. | |
@@ -439,6 +440,20 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - query_by_cause_signature docstring updated: "Phase 1 coverage / Phase 2 proximity" replaced with live MOD-003 algorithm description.
   - Backlog items 7/8/9 (MOD-001/003/004) struck; deferred MOD table updated.
   - Next session pickup point: install APK, run first Λ_env-only shadow session, begin 10–15-event warm corpus.
+```
+
+```
+2026-05-28 — Claude Code — W-030: llm-gemini module
+  - What was worked on: GeminiVisionClient (LlmClient impl, Gemini generateContent API,
+    gemini-2.0-flash default, inline_data image format, generationConfig maxOutputTokens);
+    VideoFrameEncoder (NV21→JPEG→Base64, internal to module); 14 unit tests;
+    settings.gradle.kts updated (`:llm-gemini` added, stub comment updated).
+  - What changed: W-030 added to §5; §0 last-session updated; §10 reflects both
+    LLM provider modules complete.
+  - Surprises: none. Mirror of ClaudeVisionClient is a clean ~80-line translation;
+    key delta is Gemini's contents/parts/inline_data vs. Anthropic's messages/content/source.
+  - Next session pickup point: install updated APK on Pixel 9 Pro, run first Λ_env-only
+    shadow session at PPVC Line 1. Begin warm corpus (backlog §3 item 1).
 ```
 
 ```
