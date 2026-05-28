@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | 10 primitives (Hollowell PPVC1 seed — manual curation) |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-28 — Claude Code — W-030: llm-gemini module (GeminiVisionClient, VideoFrameEncoder, 14 unit tests, registered in settings.gradle.kts) |
+| **Last working session** | 2026-05-28 — Claude Code — W-031: Console panel + action grid + debrief/annotation navigation in MainScreen |
 | **Build is** | 🟢 healthy — debug APK assembles clean |
 
 ---
@@ -98,6 +98,7 @@ Last 10 items max. Anything older lives in version control.
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-28 | W-031 | **Console panel + action grid + debrief/annotation nav** — `AppLogger` singleton (LogLevel DEBUG/INFO/WARN/ERROR, 200-entry ring buffer, `MutableStateFlow.update`); `ConsolePanel` (dark card, monospace 10 sp, color-coded by level, auto-scroll, Clear button, status dot green/red); `SessionViewModel` extended (AppLogger calls at all state transitions + each LLR gate fire with λ breakdown + source fallback warnings; `manualTrigger()` OPERATOR_INITIATED synthetic CandidateWindow; `toggleVoiceAnnotation()` Phase 2 toggle stub; `voiceAnnotationActive: StateFlow<Boolean>`; `lastSessionLogPath: StateFlow<String?>`); `MainScreen` complete redesign (verticalScroll Column, 6 section labels, Manual Trigger + Voice Note + New Manual CIAER+ Entry + Debrief Queue + Shadow Labeler + Export Log + Import to Queue buttons with correct enable-gating); `MainActivity` gains "debrief" and "annotation/{eventId}" routes with shared DebriefViewModel scoped to "debrief" backstack entry; `app/build.gradle.kts` adds `:debrief-ui` dep. | Debrief queue and annotation form now fully reachable from main screen. All corpus-collection actions surfaced. |
 | 2026-05-28 | W-030 | **`llm-gemini` module** — `GeminiVisionClient` implementing `LlmClient` against the Gemini `generateContent` API (model `gemini-2.0-flash`, inline_data image format); `VideoFrameEncoder` (NV21→JPEG→Base64, duplicated `internal` to this module); `parseGaugeValue()` shares identical regex logic with `ClaudeVisionClient`; `generateGuidance()` Phase 3 stub; `build.gradle.kts` mirrors llm-claude; `AndroidManifest.xml` (INTERNET permission); 14 unit tests (10 `parseGaugeValue` cases + Gemini JSON parse verification + `buildRequestJson` no-frame + `generationConfig` maxOutputTokens + `contents` array structure); `:llm-gemini` registered in `settings.gradle.kts`. All provider-abstraction LLM modules now implemented: `ClaudeVisionClient` (`providerId="claude"`) and `GeminiVisionClient` (`providerId="gemini"`). Remaining stubs (source-emotibit, source-plc) remain device/data-gated. | Provider abstraction complete through Phase 2. LLM swap is a DI binding change. |
 | 2026-05-28 | W-029 | **Complete all Phase 2 stubs** — `backend/codebook`: 10-primitive Hollowell PPVC1 behavioral codebook (ontology-controlled vocabulary, value-proximity matcher, PrimitiveRegistry/YAML, 26 tests); `backend/ingest`: sidecar parser, CandidateWindow reader, CIAER+ skeleton builder, HITL-before-persistence enforced in IngestHandler (29 tests); `backend/twin`: RAG Twin wired-but-disabled (`active=False` config, `advise()` returns None, anti-reflexivity invariant documented, 27 tests); `backend/withhold`: Q/Q' partition enforced at write time, KLDivergenceMonitor with Laplace smoothing, `p_withhold=0.0` default, 1.5× high-weight sampling rate when Phase 3 activates (39 tests); `GraphCorpusBackend` Kuzu scaffold (Phase 3, `get_divergent_chains()` via graph traversal, graceful `BackendUnavailableError`). MCP server: +2 tools (`match_primitive`, `list_primitives`) → 13 tools total. **90/90 backend tests passing**. Android: `debrief-ui` HITL annotation queue + per-event form (all CIAER+ phases, shadow action editor, `isComplete()` enforces §2.4 invariants); `source-openmeteo` (Open-Meteo ambient temp, Hollowell coords, 5-min cache); `PreEnvSource` interface added to `core-schema`; LLR gaze dwell injectable (`gazeDwellProvider: () → Float = { 0f }`). `settings.gradle.kts` updated. | 90/90 Python tests. 13 MCP tools. All stubs completed through Phase 2; Phase 3+ (RVQ, LoRA, ml/, ciaer-ql/) correctly deferred. |
 | 2026-05-27 | W-028 | **Runtime settings screen** — `SettingsRepository` (SharedPreferences, StateFlow per setting, BuildConfig defaults on first launch); `SettingsViewModel` (@HiltViewModel, hardware availability booleans, BT bond check); `SettingsScreen` (LazyColumn: API Keys / Biometric Source / Video Source / Accel Source / Session Parameters / Device Status panels; auto-save on change; password-masked Claude key field); gear icon in MainScreen TopAppBar; `"settings"` NavHost route in MainActivity. All settings take effect on next session start; API key change requires restart. | `SettingsRepository` eliminates rebuild-per-config cycle. |
@@ -440,6 +441,19 @@ YYYY-MM-DD — Kahn / Claude Code session #N
   - query_by_cause_signature docstring updated: "Phase 1 coverage / Phase 2 proximity" replaced with live MOD-003 algorithm description.
   - Backlog items 7/8/9 (MOD-001/003/004) struck; deferred MOD table updated.
   - Next session pickup point: install APK, run first Λ_env-only shadow session, begin 10–15-event warm corpus.
+```
+
+```
+2026-05-28 — Claude Code — W-031: console panel + action grid + debrief nav
+  - What was worked on: AppLogger + ConsolePanel (new files); SessionViewModel
+    extended with logging + manualTrigger() + toggleVoiceAnnotation(); MainScreen
+    complete redesign (6 sections, 7 action buttons, verticalScroll); MainActivity
+    gains "debrief" and "annotation/{eventId}" NavHost routes with shared
+    DebriefViewModel via getBackStackEntry; app/build.gradle.kts adds :debrief-ui.
+  - What changed: §0 last-session updated; W-031 added to §5.
+  - Surprises: material-icons-extended was already in app deps (Mic/MicOff available).
+  - Next session pickup point: install updated APK on Pixel 9 Pro; verify console
+    output during shadow capture; test Debrief Queue → annotation → submit flow.
 ```
 
 ```
