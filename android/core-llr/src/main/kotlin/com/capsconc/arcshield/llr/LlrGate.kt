@@ -59,16 +59,22 @@ import kotlin.math.max
  *                          Returns 0f by default (gaze not yet wired). Inject a real
  *                          provider when eye-tracking hardware is available (Meta Ray-Bans
  *                          Gen 2, Phase 2+). The provider is called on every eval tick.
+ * @param adaptiveBaseline  Optional adaptive EWMA baseline (W-034). When provided, the gate
+ *                          uses the EWMA snapshot rather than the static [baseline] for LLR
+ *                          computation, and updates the EWMA after each quiescent eval tick.
+ *                          Suppression is applied automatically on production-mode gate fires.
+ *                          Pass null (default) to use the static I-frame baseline.
  */
 fun llrGate(
     audioFrames:       Flow<AudioFrame>,
     accelSamples:      Flow<AccelSample>,
     baseline:          LlrBaseline,
     config:            LlrConfig,
-    hrSamples:         Flow<HrSample>   = emptyFlow(),
-    rrSamples:         Flow<RrSample>   = emptyFlow(),
-    videoFrames:       Flow<VideoFrame> = emptyFlow(),
-    gazeDwellProvider: () -> Float      = { 0f },
+    hrSamples:         Flow<HrSample>        = emptyFlow(),
+    rrSamples:         Flow<RrSample>        = emptyFlow(),
+    videoFrames:       Flow<VideoFrame>      = emptyFlow(),
+    gazeDwellProvider: () -> Float           = { 0f },
+    adaptiveBaseline:  AdaptiveLlrBaseline?  = null,
 ): Flow<CandidateWindow> = channelFlow {
 
     // Shared mutable state updated by producer coroutines, read by the eval ticker.
@@ -133,23 +139,29 @@ fun llrGate(
     while (isActive) {
         delay(config.evalIntervalMs)
 
+        val nowNanos = SystemClock.elapsedRealtimeNanos()
+
+        // Use the EWMA snapshot when an adaptive baseline is wired; fall back to
+        // the static I-frame baseline otherwise. Snapshot is O(1) when quiescent.
+        val effectiveBaseline = adaptiveBaseline?.snapshot() ?: baseline
+
         val spectrum = latestSpectrum.get()
 
         val lambdaAcoustic: Float = if (config.acousticEnabled && spectrum != null) {
-            KlDivergence.compute(baseline.acousticSpectrum, spectrum)
+            KlDivergence.compute(effectiveBaseline.acousticSpectrum, spectrum)
         } else 0f
 
         // Accel RMS is always computed for the activity gate even when accelEnabled = false.
         val rms          = latestRmsRef.get()
         val lambdaAccel: Float = if (config.accelEnabled) {
-            val dev = rms - baseline.accelRmsBaseline
-            max(0f, (dev * dev) / (2f * baseline.accelRmsVariance))
+            val dev = rms - effectiveBaseline.accelRmsBaseline
+            max(0f, (dev * dev) / (2f * effectiveBaseline.accelRmsVariance))
         } else 0f
 
         val mad          = latestMadRef.get()
-        val lambdaMotion: Float = if (config.motionEnabled && mad != null && baseline.motionAvailable) {
-            val dev = mad - baseline.motionBaselineMad
-            max(0f, (dev * dev) / (2f * baseline.motionVarianceMad))
+        val lambdaMotion: Float = if (config.motionEnabled && mad != null && effectiveBaseline.motionAvailable) {
+            val dev = mad - effectiveBaseline.motionBaselineMad
+            max(0f, (dev * dev) / (2f * effectiveBaseline.motionVarianceMad))
         } else 0f
 
         // Λ_gaze: sustained attention dwell on visual anchor.
@@ -169,7 +181,7 @@ fun llrGate(
         val activityGate: Float
         val lambdaBio: Float
 
-        if (bioSnap != null && baseline.biometricAvailable) {
+        if (bioSnap != null && effectiveBaseline.biometricAvailable) {
             // Activity gate: high physical exertion confounds HR/HRV signal.
             // Uses raw accel RMS regardless of accelEnabled so gating always works.
             activityGate = when {
@@ -180,32 +192,32 @@ fun llrGate(
             }
 
             val lambdaHr: Float = if (config.hrEnabled && bioSnap.hasHr) {
-                val delta = bioSnap.hrMeanBpm - baseline.hrBaselineBpm
-                max(0f, (delta * delta) / (2f * baseline.hrVarianceBpm))
+                val delta = bioSnap.hrMeanBpm - effectiveBaseline.hrBaselineBpm
+                max(0f, (delta * delta) / (2f * effectiveBaseline.hrVarianceBpm))
             } else 0f
 
-            val lambdaRmssd: Float = if (config.rmssdEnabled && bioSnap.hasRr && baseline.rmssdBaselineMs > 0f) {
-                val delta = bioSnap.rmssdMs - baseline.rmssdBaselineMs
-                max(0f, (delta * delta) / (2f * baseline.rmssdVarianceMs))
+            val lambdaRmssd: Float = if (config.rmssdEnabled && bioSnap.hasRr && effectiveBaseline.rmssdBaselineMs > 0f) {
+                val delta = bioSnap.rmssdMs - effectiveBaseline.rmssdBaselineMs
+                max(0f, (delta * delta) / (2f * effectiveBaseline.rmssdVarianceMs))
             } else 0f
 
-            val lambdaHrvNl: Float = if (config.hrvNlEnabled && bioSnap.hasNonlinearHrv && baseline.nonlinearHrvAvailable) {
-                val lambdaSd1: Float = if (baseline.sd1VarianceMs > 0f) {
-                    val d = bioSnap.sd1Ms - baseline.sd1BaselineMs
-                    max(0f, (d * d) / (2f * baseline.sd1VarianceMs))
+            val lambdaHrvNl: Float = if (config.hrvNlEnabled && bioSnap.hasNonlinearHrv && effectiveBaseline.nonlinearHrvAvailable) {
+                val lambdaSd1: Float = if (effectiveBaseline.sd1VarianceMs > 0f) {
+                    val d = bioSnap.sd1Ms - effectiveBaseline.sd1BaselineMs
+                    max(0f, (d * d) / (2f * effectiveBaseline.sd1VarianceMs))
                 } else 0f
 
-                val lambdaSd2: Float = if (baseline.sd2VarianceMs > 0f) {
-                    val d = bioSnap.sd2Ms - baseline.sd2BaselineMs
-                    max(0f, (d * d) / (2f * baseline.sd2VarianceMs))
+                val lambdaSd2: Float = if (effectiveBaseline.sd2VarianceMs > 0f) {
+                    val d = bioSnap.sd2Ms - effectiveBaseline.sd2BaselineMs
+                    max(0f, (d * d) / (2f * effectiveBaseline.sd2VarianceMs))
                 } else 0f
 
                 val lambdaSampEn: Float = if (!bioSnap.sampEn.isNaN()
-                    && !baseline.sampEnBaseline.isNaN()
-                    && baseline.sampEnVariance > 0f
+                    && !effectiveBaseline.sampEnBaseline.isNaN()
+                    && effectiveBaseline.sampEnVariance > 0f
                 ) {
-                    val d = bioSnap.sampEn - baseline.sampEnBaseline
-                    max(0f, (d * d) / (2f * baseline.sampEnVariance))
+                    val d = bioSnap.sampEn - effectiveBaseline.sampEnBaseline
+                    max(0f, (d * d) / (2f * effectiveBaseline.sampEnVariance))
                 } else 0f
 
                 lambdaSd1 + lambdaSd2 + lambdaSampEn
@@ -222,9 +234,31 @@ fun llrGate(
 
         val thresholdReached = lambda >= config.tau
 
+        // Feed current readings into the adaptive baseline.
+        // Suppression fires only in production mode (thresholdReached && !shadowMode);
+        // shadow mode uses the rolling-median gate exclusively.
+        if (adaptiveBaseline != null) {
+            val measurements = ChannelMeasurements(
+                timestampNanos = nowNanos,
+                accelRms       = rms,
+                spectrum       = spectrum,
+                hrBpm          = if (bioSnap?.hasHr == true) bioSnap.hrMeanBpm else null,
+                rmssdMs        = if (bioSnap?.hasRr == true) bioSnap.rmssdMs else null,
+                motionMad      = mad,
+                sd1Ms          = if (bioSnap?.hasNonlinearHrv == true) bioSnap.sd1Ms else null,
+                sd2Ms          = if (bioSnap?.hasNonlinearHrv == true) bioSnap.sd2Ms else null,
+                sampEn         = if (bioSnap?.hasNonlinearHrv == true && !bioSnap.sampEn.isNaN())
+                                     bioSnap.sampEn else null,
+            )
+            adaptiveBaseline.updateIfQuiescent(lambda, measurements)
+            if (thresholdReached && !config.shadowMode) {
+                adaptiveBaseline.suppress(nowNanos, config.postWindowMs * 1_000_000L)
+            }
+        }
+
         if (config.shadowMode || thresholdReached) {
             send(CandidateWindow(
-                detectedAtNanos  = SystemClock.elapsedRealtimeNanos(),
+                detectedAtNanos  = nowNanos,
                 lambda           = lambda,
                 lambdaEnv        = lambdaEnv,
                 lambdaAcoustic   = lambdaAcoustic,

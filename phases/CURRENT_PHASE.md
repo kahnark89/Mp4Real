@@ -20,7 +20,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 | **Corpus depth** | 1 validated CIAER+ event (April 8, 2026 PIE demo — material_segregation_funnel_flow) |
 | **Codebook size** | 1 primitive (PRIM-001, material_segregation_funnel_flow) |
 | **Last shift captured** | _YYYY-MM-DD / none yet_ |
-| **Last working session** | 2026-05-29 — Claude Code — documentation drift fix (restored 2026-05-28 session state lost in branch merge conflict resolution) |
+| **Last working session** | 2026-05-29 — Claude Code — W-034: adaptive per-channel EWMA baseline (core-llr) |
 | **Build is** | 🟢 healthy — debug APK assembles clean; 17 MCP tools live |
 
 ---
@@ -29,7 +29,7 @@ The handoff document (`/CLAUDE.md`) describes architecture, schema, and invarian
 
 Things being worked on right now. Move items here from §3 (Backlog) when starting; move to §5 (Completed) on acceptance. Limit WIP to 3 active items at a time — more than that means something is actually blocked and should be in §4.
 
-_No active items — see §5 for recently completed work. Next: implement W-034 (adaptive baseline) or run first Λ_env-only shadow sessions on Pixel 9 Pro._
+_No active items — see §5 for recently completed work. Next: run first Λ_env-only shadow sessions on Pixel 9 Pro, or bench-test PolarBleBiometricSource against H10._
 
 | ID | Item | Module(s) | Started | Owner | State |
 |---|---|---|---|---|---|
@@ -63,9 +63,8 @@ _None observed yet._
 
 Ordered by intended pickup, not by priority alone. Top of list is next.
 
-1. **[W-034] Adaptive per-channel EWMA baseline** (`core-llr`) — Replace static I-frame baseline with dual-timescale adaptive baseline per channel. Key problem: a static shift-start snapshot becomes increasingly stale over an 8-hour shift (HR drifts from thermal load + fatigue, acoustic signature changes as barrel warms, vibration shifts as die pressure equilibrates). Fix: EWMA with per-channel half-lives (HR 20 min, RMSSD 30 min, accel 10 min, acoustic 25 min, motion 15 min, thermal 45 min). **Critical invariant:** baseline update gated OFF during and for W_post after any triggered window — prevents genuine events from being absorbed into the null hypothesis. Shadow-mode gating: update only when `lambda < rolling_median_lambda(30min)` (not threshold-based since τ=0 means everything fires). Container implication: the I-frame at shift-start seeds the EWMA; periodic metadata I-frames written on significant baseline drift give P-frames a local reference. See session discussion 2026-05-28 for full architecture.
-2. **Run Λ_env-only shadow sessions to begin corpus building** — no H10 required. Leave `POLAR_DEVICE_ID` blank in `local.properties`; app runs in acoustic + accel + motion mode (Λ_bio = 0). Start accumulating labeled candidate windows now. Label sessions separately from future full-signal sessions — do not mix the two τ calibration populations. Target: 10–15 Λ_env-only events as a warm corpus before H10 bench test.
-3. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement. **No longer blocks corpus building** — see item 2. Unblocks full-signal (Λ_env + Λ_bio) sessions and the second τ calibration pass.
+1. **Run Λ_env-only shadow sessions to begin corpus building** — no H10 required. Leave `POLAR_DEVICE_ID` blank in `local.properties`; app runs in acoustic + accel + motion mode (Λ_bio = 0). Start accumulating labeled candidate windows now. Label sessions separately from future full-signal sessions — do not mix the two τ calibration populations. Target: 10–15 Λ_env-only events as a warm corpus before H10 bench test. Wire `AdaptiveLlrBaseline` into `SessionViewModel` before first shadow sessions (W-034 code is in `core-llr`; DI wiring in `AppModule` is the remaining step).
+2. **Bench-test `PolarBleBiometricSource` against H10** over a 4-hour continuous capture; characterize dropout rate near the extruder barrel. Hardware-gated; requires signed facility agreement. **No longer blocks corpus building** — see item 1. Unblocks full-signal (Λ_env + Λ_bio) sessions and the second τ calibration pass.
 
 When pulling an item from this list into §1, copy its text verbatim and assign a W-### ID.
 
@@ -90,6 +89,7 @@ Last 10 items max. Anything older lives in `phases/archive/recently-completed-20
 
 | Date | ID | Item | Notes |
 |---|---|---|---|
+| 2026-05-29 | W-034 | **Adaptive per-channel EWMA baseline** (`core-llr`) — `AdaptiveLlrBaseline.kt`: `AdaptiveBaselineConfig` (per-channel half-lives: HR 20 min, RMSSD 30 min, accel 10 min, acoustic 25 min, motion 15 min), `ChannelMeasurements` (per-tick sensor readings from eval ticker), `AdaptiveLlrBaseline` class (EWMA state for all scalar + acoustic-spectrum channels; `snapshot()` returns current EWMA state as `LlrBaseline`; `updateIfQuiescent()` with two safeguards: suppression window hard-blocks updates for W_post after each production-mode gate fire, rolling-median gate blocks updates when lambda ≥ 30-min median; `suppress()` for gate-fire notification; `hasDriftedSignificantly()` for I-frame checkpoint decisions). `LlrGate.kt` extended: optional `adaptiveBaseline: AdaptiveLlrBaseline?` param; `effectiveBaseline` snapshot used in all LLR computations; `nowNanos` captured once per tick (also improves `detectedAtNanos` timestamp consistency); `ChannelMeasurements` built from eval-tick state, fed to `updateIfQuiescent`; suppression fired on `thresholdReached && !shadowMode`. `AdaptiveLlrBaselineTest.kt`: 17 unit tests (snapshot caching, spectrum normalization, EWMA convergence accel + HR, variance floor, zero-dt alpha, suppression block + expiry, median gate first-call / high-lambda block / low-lambda allow, drift detection, no-biometric / no-motion path guards). | Static baseline → EWMA fixes §7 Drift Watch "static baseline temporal drift" item. Suppression window is the load-bearing invariant from CLAUDE.md §1 C1: genuine events cannot collapse into the null hypothesis. Wire `AdaptiveLlrBaseline` into `SessionViewModel` / `AppModule` DI before first shadow sessions. |
 | 2026-05-28 | W-025b | **Backend codebook + 4 MCP tools (branch next-phase-item-P7RXO)** — `backend/codebook/` package: `schema.py` (Primitive, CodebookMatchResult, CodebookExpansionRequest), `matcher.py` (extract_cause_features, cosine_similarity on per-instrument ratio vectors — scale-invariant across physical units — compute_delta_vector, CosineCodebookMatcher), `codebook.py` (PrimitiveCodebook load/save/HITL expand), `primitives.json` (PRIM-001 hand-curated from April 8 PIE seed event, material_segregation_funnel_flow, theta_tc=0.70). 42 unit tests. 4 new MCP tools in `server.py`: `codebook_match`, `codebook_list_primitives`, `codebook_get_primitive`, `codebook_expand` (write-auth gated). Codebook + matcher loaded in lifespan; matcher rebuilt on expand. config.toml `[codebook]` section. | Branch self-assigned W-025; that ID is taken on main (Android device-independence fix). Assigned W-025b for disambiguation. Phase 3 upgrade path: replace ratio cosine with learned Transformer embeddings + VICReg + RVQ (CLAUDE.md §5.2). |
 | 2026-05-28 | W-033 | **PWA dark UI port — 3-tab layout + dwell overlay** — `ArcShieldTheme.kt` (Material3 dark color scheme matching PWA palette: #07090D bg, #4B8EFF blue, #34D399 green, #FBBF24 amber, #F87171 red, #A78BFA violet); `AppLogger.kt` (singleton log sink + `ConsolePanel` composable, color-coded by level, auto-scrolls); `MainScreen.kt` rewritten as 3-tab (`CAPTURE` / `EVENTS` / `CONFIG`) dark PWA layout — AppHeader with AS gradient badge + pulsing status dot, camera view (4:3) with overlays (elapsed timer, candidate count, voice REC badge), `DwellOverlay` (progress bar + DWELLING state from motion proxy), 5-phase CIAER bar (Cause/Intuition/Action/Effect/Result), inline Facility/Line config, nav cards; `SessionViewModel` extended with `dwellProgress`, `isDwelling`, `lastDwellSec` StateFlows (6 consecutive still windows at lambdaMotion < 0.05 = DWELLING); `MainActivity` swapped to `ArcShieldTheme`. | UI-only motion-proxy dwell; actual LLR gaze channel requires Phase 2+ eye-tracking HW. |
 | 2026-05-28 | W-032 | **Gate tuning screen — per-channel control + live Λ breakdown** — `LlrConfig` extended with 7 per-channel enable flags (`acousticEnabled`, `accelEnabled`, `motionEnabled`, `gazeEnabled=false`, `hrEnabled`, `rmssdEnabled`, `hrvNlEnabled`); gaze defaults fixed (both `gazeDwellBaselineSec` and `gazeDwellVarianceSec` were 0f, making Λ_gaze permanently 0 — fixed to 2.0f with explicit `gazeEnabled` flag); `LlrGate` uses enable flags; `SettingsRepository` +15 gate tuning settings (τ, 7 channel flags, 3 accel thresholds, 3 gate factors, 2 gaze params) persisted in SharedPreferences; `GateTuningScreen` — live Λ breakdown card (8 values, 4-decimal monospace), τ slider (0–10), channel rows with status dot + source tag + description + toggle Switch, activity gate class indicator + threshold/factor sliders; `SessionViewModel.latestWindow: StateFlow<CandidateWindow?>` exposed for live display; `MainScreen` + `MainActivity` wired for gate nav. | Λ_gaze was hardcoded to never fire — now properly guarded and configurable. |
@@ -99,7 +99,6 @@ Last 10 items max. Anything older lives in `phases/archive/recently-completed-20
 | 2026-05-27 | W-025 | **Device-independence + permission bug fixes** — `BLUETOOTH` removed from `requestMultiplePermissions` list (returns false silently on API 31+); permission denial Toast lists denied permissions; `AppModule.provideBiometricSource` falls back to `NullBiometricSource`; `PolarBleBiometricSource.connect()` catches all `Exception` (not just `PolarInvalidArgument`). | Root cause of "nothing happened" on Pixel 9 Pro confirmed and fixed. |
 | 2026-05-27 | W-024 | **Nonlinear HRV (SD1/SD2/SampEn) wired into Λ_bio gate** — `NonlinearHrv.kt`: pure sd1/sd2/sampleEntropy; `RollingBioStats.BioSnapshot` extended; `LlrBaseline` +7 NL HRV fields; `LlrBaselineBuilder` adds `computeNonlinearHrvStats()`; `LlrGate` replaces `lambdaHrvNl = 0f` stub with real Gaussian-shift GLR; `NonlinearHrvTest` 14 unit tests. 144 Android unit tests green. | Fires only when `baseline.nonlinearHrvAvailable && bioSnap.hasNonlinearHrv` (requires H10 ≥20 R-R in window). |
 | 2026-05-27 | W-023 | **[MCP-MOD-004] Per-operator write auth** — `[auth] write_operators` in `config.toml`; `_check_write_auth()` helper; `ingest_event` + `update_graph_weight` check operator; empty allowlist = no restriction; 6 new auth tests; 68/68 tests green. | W-022 + W-023 land in same PR. |
-| 2026-05-27 | W-022 | **[MCP-MOD-001] `SqliteCorpusBackend` + [MOD-003] value-proximity scoring** — `sqlite_backend.py`: WAL journal, `events` + `weight_audit` tables, 4 indexed columns; `query_by_cause_signature` value-proximity (`1/(1+|q_val−s_val|)` per shared instrument); contract fixture extended `params=["json","sqlite"]`; 58/58 tests (29×2). | |
 
 ---
 
@@ -133,6 +132,34 @@ Common patterns to watch for (delete this once seen at least once, since at that
 ## 8. Session Log
 
 Append-only. One entry per Claude Code session or per Kahn working session. Keep entries short — full reasoning belongs in commits and §1 working notes.
+
+```
+2026-05-29 — Claude Code — W-034: adaptive per-channel EWMA baseline
+  - What was worked on: implemented AdaptiveLlrBaseline in android/core-llr. New file
+    AdaptiveLlrBaseline.kt: AdaptiveBaselineConfig (per-channel half-lives), ChannelMeasurements
+    data class (all sensor readings from an eval tick), AdaptiveLlrBaseline class with EWMA
+    state for acoustic spectrum (per-bin) + accel + HR + RMSSD + nonlinear HRV + motion.
+    Two invariant safeguards: (1) suppression window — hard blocks EWMA updates for W_post
+    nanoseconds after any production-mode gate fire; (2) rolling-median gate — update only
+    when lambda < 30-min rolling median lambda, ensuring only quiescent ticks adapt the
+    baseline. Historical median computed from history BEFORE adding current entry (empty
+    history = Float.MAX_VALUE = always update on first call). Modified LlrGate.kt: added
+    optional adaptiveBaseline parameter; effectiveBaseline from snapshot() used in all LLR
+    computations; nowNanos captured once per tick; ChannelMeasurements built and fed to
+    updateIfQuiescent; suppress fired on thresholdReached && !shadowMode. AdaptiveLlrBaselineTest.kt:
+    17 unit tests covering snapshot caching, spectrum normalization, EWMA convergence, variance
+    floor, zero-dt, suppression block+expiry, median gate behavior, drift detection, no-bio/no-motion guards.
+  - What changed in state above: §0 last session updated; §1 updated; §3 W-034 removed (→§5);
+    §5 W-034 added at top, W-022 archived; §8 this entry appended.
+  - Surprises: the "first call always updates" edge case requires computing historical median
+    BEFORE adding the current entry (not after). Computing after would make the first call always
+    blocked (lambda >= lambda). Historical-median-before-add also correctly handles the warm-up
+    period for the first ~30 minutes of a shift.
+  - Next session pickup point: wire AdaptiveLlrBaseline into SessionViewModel / AppModule DI
+    before first shadow sessions. Create an AdaptiveLlrBaseline in AppModule (seeded from the
+    LlrBaseline produced by LlrBaselineBuilder at shift start) and inject into SessionViewModel
+    which passes it to llrGate(). Then run first Λ_env-only shadow sessions on Pixel 9 Pro.
+```
 
 ```
 2026-05-29 — Claude Code — documentation drift fix
